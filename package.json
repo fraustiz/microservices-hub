@@ -1,0 +1,17 @@
+{
+  "name": "microservices-hub",
+  "private": true,
+  "packageManager": "pnpm@10.34.6",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "hooks": "git config core.hooksPath .githooks"
+  },
+  "devDependencies": {
+    "turbo": "^2.6.0",
+    "typescript": "~5.9.3"
+  }
+}

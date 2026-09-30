@@ -1,0 +1,7 @@
+#!/bin/sh
+# Retire toute attribution automatique (Co-Authored-By Claude, "Generated with Claude Code").
+# Activé par `pnpm hooks` (git config core.hooksPath .githooks).
+tmp=$(mktemp)
+grep -v -e '^Co-Authored-By: Claude' -e 'Generated with \[Claude Code\]' "$1" > "$tmp"
+cat "$tmp" > "$1"
+rm -f "$tmp"

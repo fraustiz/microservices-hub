@@ -1,0 +1,91 @@
+# Seule la gateway (Traefik) publie un port. Les services et les bases sont sur des réseaux internes.
+# Le routage est entièrement décrit dans infra/traefik/dynamic.yml (provider fichier) : aucun label
+# traefik.* ni accès au socket Docker, pour ne pas interférer avec un autre Traefik sur l'hôte.
+#   public     : gateway <-> front
+#   internal    : gateway <-> services, et services entre eux (pas d'accès Internet)
+#   egress      : sortie Internet, UNIQUEMENT pour ai-agent-service (API Mistral)
+#   *-db-net    : chaque service <-> sa propre base, rien d'autre
+
+x-service: &service
+  build: { context: ., dockerfile: Dockerfile }
+  restart: unless-stopped
+
+services:
+  gateway:
+    image: traefik:v3.5
+    command:
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --entrypoints.web.address=:80
+      - --accesslog=true
+      - --accesslog.format=json
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+    networks: [public, internal]
+
+  web:
+    <<: *service
+    build: { context: ., dockerfile: Dockerfile, args: { APP: web } }
+    networks: [public]
+
+  auth-service:
+    <<: *service
+    build: { context: ., dockerfile: Dockerfile, args: { APP: auth-service } }
+    env_file: apps/auth-service/.env
+    environment:
+      DATABASE_URL: postgresql://auth:auth@auth-db:5432/auth_db
+    depends_on: { auth-db: { condition: service_healthy } }
+    networks: [internal, auth-db-net]
+
+  business-service:
+    <<: *service
+    build: { context: ., dockerfile: Dockerfile, args: { APP: business-service } }
+    env_file: apps/business-service/.env
+    environment:
+      DATABASE_URL: postgresql://business:business@business-db:5432/business_db
+    depends_on: { business-db: { condition: service_healthy } }
+    networks: [internal, business-db-net]
+
+  ai-agent-service:
+    <<: *service
+    build: { context: ., dockerfile: Dockerfile, args: { APP: ai-agent-service } }
+    env_file: apps/ai-agent-service/.env
+    environment:
+      DATABASE_URL: postgresql://agent:agent@agent-db:5432/agent_db
+    depends_on: { agent-db: { condition: service_healthy } }
+    networks: [internal, agent-db-net, egress]
+
+  auth-db:
+    image: postgres:17-alpine
+    environment: { POSTGRES_USER: auth, POSTGRES_PASSWORD: auth, POSTGRES_DB: auth_db }
+    volumes: [auth-db-data:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U auth -d auth_db"], interval: 5s, retries: 10 }
+    networks: [auth-db-net]
+
+  business-db:
+    image: postgres:17-alpine
+    environment: { POSTGRES_USER: business, POSTGRES_PASSWORD: business, POSTGRES_DB: business_db }
+    volumes: [business-db-data:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U business -d business_db"], interval: 5s, retries: 10 }
+    networks: [business-db-net]
+
+  agent-db:
+    image: postgres:17-alpine
+    environment: { POSTGRES_USER: agent, POSTGRES_PASSWORD: agent, POSTGRES_DB: agent_db }
+    volumes: [agent-db-data:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U agent -d agent_db"], interval: 5s, retries: 10 }
+    networks: [agent-db-net]
+
+networks:
+  public:
+  internal: { internal: true }
+  egress:
+  auth-db-net: { internal: true }
+  business-db-net: { internal: true }
+  agent-db-net: { internal: true }
+
+volumes:
+  auth-db-data:
+  business-db-data:
+  agent-db-data:

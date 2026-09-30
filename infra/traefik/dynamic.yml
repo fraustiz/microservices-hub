@@ -1,0 +1,74 @@
+# Configuration complète de la gateway (provider fichier) : identique en local et en prod.
+# Explications : docs/gateway.md. Schéma de sécurité : docs/securite.md.
+#
+# Ordre des middlewares sur les routes protégées :
+#   strip-identity → security-headers → jwt-auth
+# - strip-identity en premier : aucun en-tête X-User-* du client n'atteint la suite ;
+# - jwt-auth en dernier : refuse toute requête sans jeton valide.
+# CORS et rate limiting : semaine 2.
+http:
+  routers:
+    web:
+      rule: PathPrefix(`/`)
+      priority: 1
+      service: web
+      middlewares: [strip-identity, security-headers]
+
+    # auth-service : seules ces routes sont exposées (liste blanche). /auth/verify et
+    # /.well-known/jwks.json restent internes : sans routeur, elles tombent sur le front (404).
+    auth-public:
+      rule: Path(`/auth/login`)
+      service: auth
+      middlewares: [strip-identity, security-headers]
+    auth-private:
+      rule: Path(`/auth/me`) || Path(`/auth/logout`)
+      service: auth
+      middlewares: [strip-identity, security-headers, jwt-auth]
+
+    business:
+      rule: PathPrefix(`/api`)
+      service: business
+      middlewares: [strip-identity, security-headers, jwt-auth]
+    agent:
+      rule: PathPrefix(`/agent`)
+      service: agent
+      middlewares: [strip-identity, security-headers, jwt-auth]
+
+  services:
+    web:
+      loadBalancer: { servers: [{ url: "http://web:3000" }] }
+    auth:
+      loadBalancer: { servers: [{ url: "http://auth-service:3000" }] }
+    business:
+      loadBalancer: { servers: [{ url: "http://business-service:3000" }] }
+    agent:
+      loadBalancer: { servers: [{ url: "http://ai-agent-service:3000" }] }
+
+  middlewares:
+    # Supprime les en-têtes d'identité envoyés par le client (valeur vide = en-tête retiré),
+    # pour qu'il ne puisse pas se faire passer pour un autre utilisateur.
+    strip-identity:
+      headers:
+        customRequestHeaders:
+          X-User-Id: ""
+          X-User-Role: ""
+          X-User-Dept: ""
+
+    # ForwardAuth : avant de transmettre la requête, Traefik appelle auth-service.
+    # 2xx → requête transmise avec les en-têtes X-User-* renvoyés ; sinon la réponse
+    # d'auth-service (401, format d'erreur commun) est renvoyée telle quelle au client.
+    # /auth/verify est implémenté en semaine 2 : d'ici là, toute route protégée est refusée.
+    jwt-auth:
+      forwardAuth:
+        address: http://auth-service:3000/auth/verify
+        authRequestHeaders: [Cookie, Authorization]
+        authResponseHeaders: [X-User-Id, X-User-Role, X-User-Dept]
+
+    # TODO S2 : cors (liste blanche d'origines, jamais "*")
+    # TODO S2 : rate limiting (login 5 req/min, agent 10 req/min)
+
+    security-headers:
+      headers:
+        frameDeny: true
+        contentTypeNosniff: true
+        referrerPolicy: strict-origin-when-cross-origin
