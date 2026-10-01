@@ -60,3 +60,9 @@ Chaque choix d'architecture ou de sécurité, avec les options écartées. Les n
 - **Décision** : `jwt-auth` (ForwardAuth) est configuré dès la semaine 1 sur toutes les routes protégées, avant que `/auth/verify` soit implémenté (semaine 2).
 - **Raison** : tant qu'auth-service ne sait pas valider un jeton, toute route protégée est refusée. Un service ne peut donc jamais être exposé sans contrôle, même pendant le développement.
 - **Écarté** : ouvrir les routes le temps du développement et ajouter la sécurité ensuite (risque d'oubli).
+
+## D11 — Communication synchrone REST/JSON, sans relance automatique (2026-10-01)
+
+- **Décision** : les services communiquent en HTTP REST/JSON, de façon synchrone, en s'adressant par leur nom Docker. Chaque appel a un délai maximal (3 s entre services, 30 s vers le LLM) et n'est jamais relancé automatiquement. Détails dans [interconnexion.md](interconnexion.md).
+- **Raison** : chaque échange a besoin de sa réponse pour continuer (vérifier un jeton, lire les documents avant d'interroger le LLM). Le synchrone est le plus simple à suivre et à déboguer, surtout avec un `X-Request-Id` commun. Sans relance, un service surchargé ne reçoit pas en plus une vague de nouvelles tentatives.
+- **Écarté** : un bus de messages (RabbitMQ, Kafka), utile pour des traitements différés qui n'existent pas ici ; gRPC (contrats binaires plus stricts, mais moins lisibles et sans intérêt à ce volume) ; des relances automatiques (risque d'amplifier une panne).

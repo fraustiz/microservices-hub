@@ -5,7 +5,7 @@ Point d'entrée de la documentation. Lire dans cet ordre pour comprendre le proj
 | # | Document | Contenu |
 | --- | --- | --- |
 | 1 | [architecture.md](architecture.md) | Schéma d'architecture distribuée, rôle de chaque service, isolation réseau |
-| 2 | [interconnexion.md](interconnexion.md) | Spécifications d'interconnexion : routes, appels entre services, format d'erreur |
+| 2 | [interconnexion.md](interconnexion.md) | Spécifications d'interconnexion : comment les services communiquent (principes, échanges autorisés et interdits, contenu de chaque appel, contrats d'API, pannes) |
 | 3 | [securite.md](securite.md) | Schéma de sécurité JWT, flux d'authentification, menaces traitées |
 | 4 | [gateway.md](gateway.md) | Configuration de l'API Gateway Traefik |
 | 5 | [developpement.md](developpement.md) | Organisation du monorepo, image Docker, lancement, conventions |
