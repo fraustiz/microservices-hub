@@ -44,6 +44,7 @@ services:
     env_file: apps/business-service/.env
     environment:
       DATABASE_URL: postgresql://business:business@business-db:5432/business_db
+      AUTH_JWKS_URL: http://auth-service:3000/.well-known/jwks.json
     depends_on: { business-db: { condition: service_healthy } }
     networks: [internal, business-db-net]
 
@@ -53,6 +54,8 @@ services:
     env_file: apps/ai-agent-service/.env
     environment:
       DATABASE_URL: postgresql://agent:agent@agent-db:5432/agent_db
+      AUTH_JWKS_URL: http://auth-service:3000/.well-known/jwks.json
+      BUSINESS_SERVICE_URL: http://business-service:3000
     depends_on: { agent-db: { condition: service_healthy } }
     networks: [internal, agent-db-net, egress]
 
