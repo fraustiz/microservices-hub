@@ -62,7 +62,7 @@ apps/<service>/
 | --- | --- |
 | auth-service | `keys.ts` (clé privée, JWKS, rotation), `session.ts` (jeton d'accès, refresh token, cookies), `users.ts` |
 | business-service | `documents.ts` (recherche et règle de visibilité en SQL), `rules.ts` (règles d'accès), `seed.ts` (jeu de démonstration) |
-| ai-agent-service | `prompts.ts` (prompts versionnés, voir [prompt-book.md](prompt-book.md)), `nim.ts` (API NVIDIA NIM), `business.ts` (appels à business-service), `agent.ts` (enchaînement), `history.ts` |
+| ai-agent-service | `prompts.ts` (prompts versionnés, voir [prompt-book.md](prompt-book.md)), `nim.ts` (API NVIDIA NIM), `business.ts` (appels à business-service), `agent.ts` (chaîne de prompts), `verification.ts` (découpage en phrases, contrôle des nombres, références), `history.ts` |
 
 Chaque route handler est enveloppé par `route()` de `@hub/shared`, qui pose `X-Request-Id` sur la réponse et traduit les erreurs au format commun ([interconnexion.md](interconnexion.md), section 6).
 
@@ -170,9 +170,9 @@ Le front (port 3000) appelle alors la gateway (port 80) : c'est une autre origin
 | Commande | Contenu | Prérequis |
 | --- | --- | --- |
 | `pnpm typecheck` | Types de tous les paquets | — |
-| `pnpm test` | Tests unitaires (vitest) : vérification des JWT (`alg: none`, HS256, `iss`, `aud`, expiration), format d'erreur, clés et rotation, recherche, prompts (échappement, analyse de la sortie), client NIM (erreurs, délai, raisonnement `<think>`), cohérence Prompt Book / code | — |
+| `pnpm test` | Tests unitaires (vitest) : vérification des JWT (`alg: none`, HS256, `iss`, `aud`, expiration), format d'erreur, clés et rotation, recherche, prompts (échappement, analyse de la sortie), chaîne (mots-clés, découpage en phrases, contrôle des nombres, garder / corriger / retirer), client NIM (erreurs, délai, raisonnement `<think>`), cohérence Prompt Book / code | — |
 | `TEST_DATABASE_URL=... pnpm --filter @hub/business-service test` | Règle de visibilité et recherche sur une vraie base PostgreSQL | Une base **jetable** : le test vide son schéma |
-| `pnpm test:e2e` | 26 vérifications à travers la gateway : routes internes, jeton forgé, en-têtes forgés, filtrage par rôle, CRUD des règles, agent (données envoyées au LLM, panne du LLM, historique), CORS, rate limiting, refresh token et déconnexion | La pile lancée avec le faux NIM (ci-dessous) |
+| `pnpm test:e2e` | 28 vérifications à travers la gateway : routes internes, jeton forgé, en-têtes forgés, filtrage par rôle, CRUD des règles, agent (chaîne de trois prompts et données envoyées au LLM, synonyme trouvé par la recherche, chiffre inventé retiré par la vérification, panne du LLM, historique), CORS, rate limiting, refresh token et déconnexion | La pile lancée avec le faux NIM (ci-dessous) |
 
 Tests de bout en bout :
 

@@ -28,6 +28,8 @@ const MIGRATIONS = [
      created_at timestamptz not null default now()
    );
    create index exchanges_user_created on exchanges (user_id, created_at desc)`,
+  // Trace de la chaîne de prompts de agent.ask : mots-clés, phrases retirées ou corrigées par la vérification.
+  `alter table exchanges add column chain jsonb`,
 ];
 
 /** Applique les migrations manquantes. Le verrou évite que deux instances migrent en même temps. */

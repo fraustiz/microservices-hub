@@ -31,10 +31,10 @@ async function call(path: string, user: AuthUser, requestId: string): Promise<un
   throw new ApiError("UPSTREAM_ERROR", "Service métier indisponible");
 }
 
-/** Documents les plus pertinents pour la question, parmi ceux que l'utilisateur peut lire. */
-export async function searchDocuments(user: AuthUser, question: string, requestId: string): Promise<SourceDocument[]> {
-  // business-service limite `q` à 200 caractères.
-  const params = new URLSearchParams({ q: question.slice(0, 200), limit: "5" });
+/** Documents les plus pertinents pour la recherche (mots-clés puis question), parmi ceux que l'utilisateur peut lire. */
+export async function searchDocuments(user: AuthUser, query: string, requestId: string): Promise<SourceDocument[]> {
+  // business-service limite `q` à 200 caractères : les mots-clés de agent.search passent en premier.
+  const params = new URLSearchParams({ q: query.slice(0, 200), limit: "5" });
   const body = z.object({ documents: z.array(document) }).safeParse(await call(`/api/documents?${params}`, user, requestId));
   if (!body.success) throw new ApiError("UPSTREAM_ERROR", "Service métier indisponible");
   return body.data.documents;

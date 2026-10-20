@@ -143,7 +143,8 @@ Format OpenAI : réponse `{ "model", "choices": [{ "message": { "content" } }], 
 - C'est le seul échange qui sort de la plateforme, et ai-agent-service est le seul service connecté au réseau `egress`.
 - Ne part vers NVIDIA que la question et les documents reçus en F5 : jamais de jeton, d'identifiant ni de donnée d'un autre utilisateur.
 - La clé API n'existe que dans les variables d'environnement d'ai-agent-service (`NIM_API_KEY`).
-- Si aucun document autorisé ne correspond à la question, le LLM n'est pas appelé : l'agent répond « Je ne trouve pas cette information… ».
+- `POST /agent/ask` fait jusqu'à **trois** appels F6 enchaînés : `agent.search` (la question seule, pour obtenir des mots-clés), `agent.ask` (documents et question), `agent.verify` (documents et phrases de la réponse). Si aucun document autorisé ne correspond, seul le premier a lieu ; si la réponse est « Je ne trouve pas… », pas de vérification. `POST /agent/summarize` fait un seul appel.
+- Chaque appel a son propre délai maximal de 30 s.
 - Texte exact des prompts, paramètres et traitement de la réponse : [prompt-book.md](prompt-book.md).
 
 ### F7 : chaque service et sa base
@@ -174,14 +175,19 @@ sequenceDiagram
   A-->>G: 200 + X-User-Id, X-User-Role, X-User-Dept
   G->>I: F3 POST /agent/ask + X-User-*
   I->>I: vérifie le JWT (clé publique en cache, F4 si besoin)
-  I->>S: F5 GET /api/documents + Bearer JWT + X-Request-Id
+  I->>M: F6 agent.search (question seule)
+  M-->>I: mots-clés
+  I->>S: F5 GET /api/documents?q=mots-clés + question, Bearer JWT, X-Request-Id
   Note over I,S: délai max 3 s
   S->>S: vérifie le JWT, filtre par rôle et département
   S-->>I: 200 documents autorisés
-  I->>M: F6 POST /v1/chat/completions (question + documents)
-  Note over I,M: délai max 30 s
-  M-->>I: réponse générée
-  I-->>G: 200 réponse + sources
+  I->>M: F6 agent.ask (question + documents)
+  M-->>I: réponse brute
+  I->>M: F6 agent.verify (documents + phrases)
+  Note over I,M: délai max 30 s par appel
+  M-->>I: avis phrase par phrase
+  I->>I: contrôle des nombres, références écrites par le code
+  I-->>G: 200 réponse vérifiée + sources
   G-->>B: 200 réponse + sources
 ```
 
@@ -300,11 +306,12 @@ Réponse 200 :
 ```json
 {
   "answer": "Vous acquérez 25 jours ouvrés de congés payés par an, plus 10 jours de RTT [D1].",
-  "sources": [{ "ref": "D1", "id": "uuid", "title": "Politique de congés payés" }]
+  "sources": [{ "ref": "D1", "id": "uuid", "title": "Politique de congés payés" }],
+  "removed": 0
 }
 ```
 
-`sources` liste les documents utilisés pour la réponse : l'utilisateur peut vérifier d'où vient l'information. `ref` est la référence citée entre crochets dans `answer`.
+Chaque phrase de `answer` se termine par la référence `[Dn]` du document qui l'appuie, écrite par ai-agent-service après vérification. `sources` liste exactement les documents cités : l'utilisateur peut vérifier d'où vient chaque information. `removed` est le nombre de phrases retirées par la vérification (aucun document ne les appuie, ou un nombre n'y figure pas) ; détail dans [prompt-book.md](prompt-book.md), section 4.
 
 Erreurs : 400 `BAD_REQUEST`, 401 `UNAUTHORIZED`, 429 `RATE_LIMITED`, 502 `UPSTREAM_ERROR` (service métier ou LLM indisponible).
 

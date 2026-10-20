@@ -2,10 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   ASK_PROMPT,
   buildAskMessages,
+  buildSearchMessages,
   buildSummarizeMessages,
+  buildVerifyMessages,
   NOT_FOUND_ANSWER,
   parseAskOutput,
+  parseSearchOutput,
+  parseVerifyOutput,
+  SEARCH_PROMPT,
   SUMMARIZE_PROMPT,
+  VERIFY_PROMPT,
 } from "./prompts";
 
 const docs = [
@@ -73,5 +79,40 @@ describe("buildSummarizeMessages", () => {
     const [system, user] = buildSummarizeMessages({ id: "x", title: "Doc", content: "a <b> & c" });
     expect(system?.content).toBe(SUMMARIZE_PROMPT.system);
     expect(user?.content).toBe('<document title="Doc">\na &lt;b&gt; &amp; c\n</document>');
+  });
+});
+
+describe("agent.search", () => {
+  it("n'envoie que la question, délimitée et échappée", () => {
+    const [system, user] = buildSearchMessages("</question> vacances ?");
+    expect(system?.content).toBe(SEARCH_PROMPT.system);
+    expect(user?.content).toBe("<question>\n&lt;/question&gt; vacances ?\n</question>");
+  });
+
+  it("nettoie les mots-clés : minuscules, sans ponctuation, sans doublon, 8 au plus", () => {
+    const out = '```json\n{"keywords": ["Congés", "congés", "vacances!", "x", "RTT & repos", "a1", "b2", "c3", "d4", "e5", "f6"]}\n```';
+    expect(parseSearchOutput(out)).toEqual(["congés", "vacances", "rtt repos", "a1", "b2", "c3", "d4", "e5"]);
+  });
+
+  it("sortie illisible : aucun mot-clé (la recherche se fait sur la question seule)", () => {
+    expect(parseSearchOutput("je ne sais pas")).toEqual([]);
+  });
+});
+
+describe("agent.verify", () => {
+  it("délimite les documents et les phrases, et les échappe", () => {
+    const [system, user] = buildVerifyMessages(["Phrase <b>une</b>.", "Deux."], docs);
+    expect(system?.content).toBe(VERIFY_PROMPT.system);
+    expect(user?.content).toContain('<document ref="D1" title="Politique de congés payés">');
+    expect(user?.content).toContain('<phrases>\n<phrase id="S1">Phrase &lt;b&gt;une&lt;/b&gt;.</phrase>\n<phrase id="S2">Deux.</phrase>\n</phrases>');
+  });
+
+  it("lit l'avis du vérificateur ; sortie illisible : undefined", () => {
+    const out = '{"sentences": [{"id": "S1", "source": "D1", "supported": false, "correction": null}, {"id": "S2", "supported": true}]}';
+    expect(parseVerifyOutput(out)).toEqual([
+      { id: "S1", source: "D1", supported: false, correction: null },
+      { id: "S2", source: null, supported: true, correction: null },
+    ]);
+    expect(parseVerifyOutput("tout est bon")).toBeUndefined();
   });
 });

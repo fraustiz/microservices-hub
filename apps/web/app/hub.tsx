@@ -125,7 +125,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
 }
 
 function Ask() {
-  const [result, setResult] = useState<{ answer: string; sources: Source[] }>();
+  const [result, setResult] = useState<{ answer: string; sources: Source[]; removed: number }>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -155,6 +155,13 @@ function Ask() {
         <>
           {/* Texte affiché tel quel, jamais interprété comme du HTML : la sortie du LLM n'est pas exécutée. */}
           <p className="answer">{result.answer}</p>
+          {result.removed > 0 && (
+            <p className="muted">
+              {result.removed === 1
+                ? "1 affirmation a été retirée : aucun document ne l'appuie."
+                : `${result.removed} affirmations ont été retirées : aucun document ne les appuie.`}
+            </p>
+          )}
           {result.sources.length > 0 && (
             <ul>
               {result.sources.map((source) => (

@@ -23,9 +23,24 @@ function reply(body) {
   if (system.startsWith("Tu résumes")) {
     return `- Résumé factice de « ${docs[0]?.title} ».\n- Deuxième point.\n- Troisième point.`;
   }
+  if (system.startsWith("Tu prépares une recherche")) {
+    // agent.search : les mots de la question, plus un synonyme pour vérifier qu'il sert à la recherche.
+    const question = user.match(/<question>\n([\s\S]*?)\n<\/question>/)?.[1] ?? "";
+    const words = question.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [];
+    if (words.includes("vacances")) words.push("congés");
+    return JSON.stringify({ keywords: [...new Set(words)].slice(0, 8) });
+  }
+  if (system.startsWith("Tu vérifies")) {
+    // agent.verify complaisant : il déclare tout appuyé. Le contrôle des nombres du code doit quand même retirer
+    // une phrase dont un nombre n'est pas dans le document (mot magique TOTAL ci-dessous).
+    const ids = [...user.matchAll(/<phrase id="(S\d+)">/g)].map((m) => m[1]);
+    return JSON.stringify({ sentences: ids.map((id) => ({ id, source: docs[0]?.ref ?? "D1", supported: true, correction: null })) });
+  }
   const first = docs[0];
+  // Mot magique TOTAL : la réponse ajoute un chiffre absent des documents.
+  const invented = user.includes("TOTAL") ? ` Le total est de 999 jours [${first.ref}].` : "";
   // Sans mode JSON côté API, un modèle entoure parfois l'objet d'un bloc de code : l'agent doit l'extraire.
-  const json = JSON.stringify({ answer: `D'après « ${first.title} », voici la réponse [${first.ref}].`, sources: [first.ref] });
+  const json = JSON.stringify({ answer: `D'après « ${first.title} », voici la réponse [${first.ref}].${invented}`, sources: [first.ref] });
   return "```json\n" + json + "\n```";
 }
 

@@ -191,20 +191,26 @@ await check("POST /agent/ask : réponse, sources vérifiées, X-Request-Id propa
   assert(res.json.answer.includes("[D1]"), "citation attendue dans la réponse");
   assert(!res.json.answer.includes("```"), "objet JSON extrait du bloc de code");
 });
-await check("la requête envoyée à NIM : modèle, prompt agent.ask, documents délimités, aucun jeton", async () => {
+await check("la chaîne envoyée à NIM : search, ask, verify ; documents délimités ; aucun jeton", async () => {
   const sent = (await llmRequests()).slice(before);
-  equal(sent.length, 1, "un seul appel au LLM");
-  const { authorization, body } = sent[0];
+  const system = (r) => r.body.messages[0].content;
+  equal(sent.length, 3, "trois appels au LLM");
+  assert(system(sent[0]).startsWith("Tu prépares une recherche"), "étape 1 : agent.search");
+  assert(system(sent[1]).startsWith("Tu es l'assistant documentaire"), "étape 2 : agent.ask");
+  assert(system(sent[2]).startsWith("Tu vérifies"), "étape 3 : agent.verify");
+  assert(!sent[0].body.messages[1].content.includes("<document"), "aucun document à l'étape de recherche");
+  const { authorization, body } = sent[1];
   equal(authorization, "Bearer nvapi-cle-factice-e2e", "clé API NIM");
   equal(
     [body.model, body.temperature, body.max_tokens, body.stream, body.chat_template_kwargs],
     ["nvidia/nemotron-3.5-super-vl-120b-a12b", 0.1, 600, false, { enable_thinking: false }],
-    "paramètres",
+    "paramètres de agent.ask",
   );
   equal(body.messages.map((m) => m.role), ["system", "user"], "rôles");
-  assert(body.messages[0].content.startsWith("Tu es l'assistant documentaire"), "prompt system agent.ask");
-  assert(/^<documents>\n<document ref="D1"/.test(body.messages[1].content), "documents délimités");
-  const payload = JSON.stringify(body);
+  assert(/^<documents>\n<document ref="D1"/.test(body.messages[1].content), "documents délimités (ask)");
+  assert(/<phrases>\n<phrase id="S1">/.test(sent[2].body.messages[1].content), "phrases délimitées (verify)");
+  assert(sent.every((r) => r.body.chat_template_kwargs?.enable_thinking === false), "raisonnement désactivé partout");
+  const payload = JSON.stringify(sent);
   assert(!payload.includes(chloe.client.cookies.get("access_token").value), "le JWT ne part jamais chez le fournisseur");
   assert(!payload.includes("chloe@hub.local"), "aucun identifiant d'utilisateur");
 });
@@ -214,11 +220,24 @@ await check("le LLM ne reçoit que les documents autorisés pour l'utilisateur",
   const payload = JSON.stringify((await llmRequests()).slice(start));
   assert(!payload.includes("Grille salariale 2026") && !payload.includes("52 000"), "document confidentiel envoyé au LLM");
 });
-await check("aucun document pertinent : réponse fixe, sans appel au LLM", async () => {
+await check("aucun document pertinent : réponse fixe, sans rédaction ni vérification", async () => {
   const start = (await llmRequests()).length;
   const res = await chloe.client.request("/agent/ask", { method: "POST", body: { question: "xylophone zeppelin" } });
-  equal([res.json.answer, res.json.sources], [NOT_FOUND_ANSWER, []], "réponse");
-  equal((await llmRequests()).length, start, "appels au LLM");
+  equal([res.json.answer, res.json.sources, res.json.removed], [NOT_FOUND_ANSWER, [], 0], "réponse");
+  const sent = (await llmRequests()).slice(start);
+  equal(sent.length, 1, "un seul appel au LLM");
+  assert(sent[0].body.messages[0].content.startsWith("Tu prépares une recherche"), "seulement agent.search");
+});
+await check("recherche : un synonyme proposé par agent.search trouve le document (vacances → congés)", async () => {
+  const res = await bruno.client.request("/agent/ask", { method: "POST", body: { question: "Combien de vacances ?" } });
+  equal(res.json.sources.map((s) => s.title), ["Politique de congés payés"], "sources");
+});
+await check("vérification : un chiffre absent des documents est retiré, même si le vérificateur l'accepte", async () => {
+  const res = await bruno.client.request("/agent/ask", { method: "POST", body: { question: "Combien de jours de congés au TOTAL ?" } });
+  equal(res.status, 200, "statut");
+  assert(!res.json.answer.includes("999"), `chiffre inventé encore présent : ${res.json.answer}`);
+  equal(res.json.removed, 1, "phrases retirées");
+  assert(/\[D1\]\.$/.test(res.json.answer), `référence écrite par le code : ${res.json.answer}`);
 });
 await check("NIM en panne : 502 UPSTREAM_ERROR « Service d'IA indisponible »", async () => {
   const res = await chloe.client.request("/agent/ask", { method: "POST", body: { question: "congés PANNE" } });
