@@ -8,7 +8,7 @@ Référence des prompts envoyés au LLM par ai-agent-service : texte exact, para
 | Code | `apps/ai-agent-service/lib/prompts.ts` (texte et paramètres), `lib/agent.ts` (enchaînement), `lib/nim.ts` (appel API) |
 | Contrôle de cohérence | `lib/prompt-book.test.ts` échoue si le texte, la version ou les paramètres d'un prompt diffèrent entre ce document et le code |
 | Fournisseur | API NVIDIA NIM, `POST /v1/chat/completions` au format OpenAI (échange F6 de [interconnexion.md](interconnexion.md)) |
-| Modèle | `mistralai/mistral-nemotron` : modèle Mistral hébergé par NVIDIA |
+| Modèle | `mistralai/mistral-nemotron` : modèle Mistral hébergé par NVIDIA, **en fin de vie** (voir section 2) |
 
 ## 1. Principes communs
 
@@ -31,7 +31,7 @@ Ces règles valent pour tous les prompts, présents et futurs.
 
 | Paramètre | Valeur | Où le changer |
 | --- | --- | --- |
-| Modèle | `mistralai/mistral-nemotron` | Variable `NIM_MODEL` d'ai-agent-service (identifiant affiché sur build.nvidia.com) |
+| Modèle | `mistralai/mistral-nemotron` (en fin de vie, à remplacer) | Variable `NIM_MODEL` d'ai-agent-service |
 | URL de l'API | `https://integrate.api.nvidia.com/v1` | Variable `NIM_BASE_URL` (remplacée par un faux serveur dans les tests e2e) |
 | Clé | `NIM_API_KEY` (`nvapi-…`), uniquement dans `apps/ai-agent-service/.env` | Jamais dans le code ni dans Git |
 | Délai maximal | 30 s (`LLM_TIMEOUT_MS`) | `packages/shared/src/config.ts` |
@@ -39,13 +39,15 @@ Ces règles valent pour tous les prompts, présents et futurs.
 | Mode JSON de l'API | Non utilisé : le format est demandé par le prompt et l'objet extrait par le code | — |
 | Température, `max_tokens` | Propres à chaque prompt (ci-dessous) | `lib/prompts.ts` |
 
-**Pourquoi NVIDIA NIM et ce modèle** ([D20](decisions.md)) : l'API NIM est gratuite pour le développement avec un compte NVIDIA Developer, alors que le plan gratuit de Mistral n'active plus les clés API (constaté le 2026-10-20). Le modèle reste un modèle Mistral, ce qui garde l'esprit du sujet (« OpenAI ou Mistral »), et un modèle d'instruction généraliste suffit pour reformuler quelques documents courts en français. L'identifiant du modèle peut changer avec les versions du catalogue : en cas d'erreur 404 dans les journaux, reprendre celui affiché sur build.nvidia.com. Tout autre modèle du catalogue s'utilise en changeant `NIM_MODEL` ; il faut alors refaire l'évaluation de la section 7.
+**Pourquoi NVIDIA NIM et ce modèle** ([D20](decisions.md)) : l'API NIM est gratuite pour le développement avec un compte NVIDIA Developer, alors que le plan gratuit de Mistral n'active plus les clés API (constaté le 2026-10-20). Le modèle reste un modèle Mistral, ce qui garde l'esprit du sujet (« OpenAI ou Mistral »), et un modèle d'instruction généraliste suffit pour reformuler quelques documents courts en français.
+
+**Cycle de vie des modèles** : NVIDIA retire des modèles du catalogue. Le premier appel réel (2026-10-20) a reçu `410 Gone` : `mistralai/mistral-nemotron` est en fin de vie depuis le 2026-09-28. La liste `GET /v1/models` n'est pas fiable pour choisir un remplaçant : `mistralai/mistral-large-2-instruct` y figure mais répond `404 … Not found for account`. Le remplaçant sera choisi parmi les modèles qui répondent réellement au script de test de [developpement.md](developpement.md) ; il fera passer les prompts en version `1.2.0`. En attendant, mettre dans `NIM_MODEL` un modèle validé par ce script. Tout autre modèle du catalogue s'utilise en changeant `NIM_MODEL` ; il faut alors refaire l'évaluation de la section 7.
 
 **Pourquoi pas de mode JSON imposé** : NIM propose plusieurs mécanismes (`response_format`, `guided_json`) dont le support et la syntaxe varient selon les modèles et les versions. Les envoyer exposerait l'agent à des erreurs 400 au moindre changement de modèle. La sortie JSON est donc demandée par la règle 7 du prompt, le code extrait l'objet même s'il est entouré de texte ou d'un bloc de code, et se replie sur le texte brut sinon (section 4).
 
 **Offre gratuite** : environ 40 requêtes par minute par clé, toutes routes confondues (chiffre relevé sur des sources tierces, à vérifier sur la page du modèle). Elle est réservée au développement et aux tests : une mise en production demande une licence NVIDIA AI Enterprise ou un autre fournisseur.
 
-Erreurs du fournisseur (clé invalide 401, modèle absent du catalogue 404, limite atteinte 429, panne 5xx, délai dépassé, réponse illisible) : l'utilisateur reçoit `502 UPSTREAM_ERROR` « Service d'IA indisponible » ; le statut, le modèle et un extrait de la réponse sont dans les journaux d'ai-agent-service.
+Erreurs du fournisseur (clé invalide 401, modèle absent du catalogue 404, modèle en fin de vie 410, limite atteinte 429, panne 5xx, délai dépassé, réponse illisible) : l'utilisateur reçoit `502 UPSTREAM_ERROR` « Service d'IA indisponible » ; le statut, le modèle et un extrait de la réponse sont dans les journaux d'ai-agent-service.
 
 ## 3. Catalogue
 
@@ -206,7 +208,7 @@ Chaque cas indique comment il est vérifié : test unitaire (`pnpm test`), test 
 | A6 | ask | chloe (employee rh) : « Quelle est la grille salariale des managers ? » | « Grille salariale 2026 » (réservée aux managers) **n'est jamais envoyée** au LLM | e2e |
 | A7 | ask | Sortie non JSON, ou JSON dans un bloc de code | JSON extrait s'il existe ; sinon texte gardé comme réponse, sources lues dans les citations | unitaire |
 | A8 | ask | Sortie citant une référence inexistante (`D7`) | Référence écartée des sources | unitaire |
-| A9 | ask | NIM en panne (503), limite atteinte (429), modèle inconnu (404) ou délai dépassé | `502 UPSTREAM_ERROR` « Service d'IA indisponible » | unitaire, e2e |
+| A9 | ask | NIM en panne (503), limite atteinte (429), modèle inconnu (404) ou en fin de vie (410), délai dépassé | `502 UPSTREAM_ERROR` « Service d'IA indisponible » | unitaire, e2e |
 | A10 | ask | Requête transmise à NIM | Prompt system `agent.ask`, documents délimités, modèle et température 0,1 ; ni JWT ni email dans la requête | e2e |
 | A11 | ask, summarize | Modèle de raisonnement (sortie précédée de `<think>…</think>`) | Raisonnement retiré avant le post-traitement | unitaire |
 | S1 | summarize | « Remboursement des notes de frais » | 3 à 5 puces commençant par « - », chiffres conservés | e2e (format), manuel |

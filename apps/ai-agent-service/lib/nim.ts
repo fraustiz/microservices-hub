@@ -51,8 +51,8 @@ export async function chat(prompt: PromptDefinition, messages: ChatMessage[], re
   }
 
   if (!res.ok) {
-    // 401 : clé invalide ; 404 : modèle absent du catalogue ; 429 : limite de la clé atteinte ; 5xx : panne.
-    // Le détail reste dans les journaux.
+    // 401 : clé invalide ; 404 : modèle absent du catalogue ; 410 : modèle en fin de vie ; 429 : limite de la clé
+    // atteinte ; 5xx : panne. Le détail reste dans les journaux.
     const detail = (await res.text().catch(() => "")).slice(0, 300);
     log("error", "NIM a répondu en erreur", { requestId, prompt: prompt.id, model, status: res.status, detail });
     throw unavailable();

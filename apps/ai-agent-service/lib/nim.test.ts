@@ -68,6 +68,7 @@ describe("chat", () => {
     ["clé absente", () => vi.stubEnv("NIM_API_KEY", "")],
     ["limite de la clé (429)", () => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("Too Many Requests", { status: 429 })))],
     ["modèle inconnu (404)", () => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("Not Found", { status: 404 })))],
+    ["modèle en fin de vie (410)", () => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("Gone", { status: 410 })))],
     ["panne (503)", () => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("", { status: 503 })))],
     ["délai dépassé", () => vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("timeout", "TimeoutError")))],
     ["réponse inattendue", () => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ choices: [] })))],

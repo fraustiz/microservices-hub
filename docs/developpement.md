@@ -145,7 +145,20 @@ Le front (port 3000) appelle alors la gateway (port 80) : c'est une autre origin
 - `env file ... not found` : lancer `pnpm env:init`.
 - auth-service redémarre en boucle avec `JWT_PRIVATE_KEY n'est pas défini` : lancer `pnpm env:init`.
 - auth-service s'arrête sur `JWT_PRIVATE_KEY illisible` (ou, avant cette vérification, `ERR_OSSL_UNSUPPORTED` / `DECODER routines::unsupported`) : la variable ne contient pas une clé PEM (chemin de fichier, secret partagé, PEM sur plusieurs lignes sans guillemets…). Formats acceptés : PEM sur une ligne avec des `\n` (celui de `pnpm env:init`), PEM sur plusieurs lignes entre guillemets, ou PEM entier en base64. Le plus simple : effacer la valeur pour garder `JWT_PRIVATE_KEY=` (avec ses éventuelles lignes suivantes), puis `pnpm env:init` et `docker compose up`.
-- L'agent répond « Service d'IA indisponible » : `NIM_API_KEY` absente ou invalide (401), modèle introuvable (404 : vérifier `NIM_MODEL` sur build.nvidia.com) ou limite de la clé atteinte (429) ; `docker compose logs ai-agent-service` donne le statut renvoyé par NIM.
+- L'agent répond « Service d'IA indisponible » : `NIM_API_KEY` absente ou invalide (401), modèle introuvable ou non servi pour ce compte (404) ou en fin de vie (410) : choisir un modèle qui répond au test ci-dessous et le mettre dans `NIM_MODEL` ou limite de la clé atteinte (429) ; `docker compose logs ai-agent-service` donne le statut renvoyé par NIM.
+- Trouver les modèles Mistral **réellement** servis pour ta clé : `GET /v1/models` liste aussi des modèles qui répondent 404, donc ce script envoie une requête de 5 jetons à chacun (PowerShell ; la clé est lue dans le `.env` sans être affichée) :
+
+  ```powershell
+  $key = ((Select-String -Path apps/ai-agent-service/.env -Pattern '^NIM_API_KEY=(.*)$').Matches[0].Groups[1].Value).Trim().Trim('"')
+  $h = @{ Authorization = "Bearer $key" }
+  $models = @((Invoke-RestMethod https://integrate.api.nvidia.com/v1/models -Headers $h).data.id | Where-Object { $_ -like "mistralai/*" })
+  foreach ($m in $models | Sort-Object -Unique) {
+    $body = @{ model = $m; messages = @(@{ role = "user"; content = "Say OK" }); max_tokens = 5 } | ConvertTo-Json -Depth 4
+    try { Invoke-RestMethod -Method Post https://integrate.api.nvidia.com/v1/chat/completions -Headers $h -ContentType "application/json" -Body $body -TimeoutSec 60 | Out-Null; "OK    $m" }
+    catch { "ERR   $m   $($_.Exception.Response.StatusCode.value__)" }
+  }
+  ```
+
 - `.env` créé avant une mise à jour (par exemple encore en `MISTRAL_*` dans ai-agent-service) : relancer `pnpm env:init`, qui ajoute les variables manquantes (`NIM_*`) et liste celles à supprimer.
 - `docker compose logs gateway` : requêtes reçues par Traefik.
 - Repartir de zéro : `docker compose down -v` (supprime conteneurs et données des bases), puis `docker compose up --build`.
@@ -194,7 +207,7 @@ Chaque service lit ses variables dans `apps/<service>/.env`, créé et tenu à j
 | ai-agent-service | `DATABASE_URL` | Connexion à `agent_db` |
 | ai-agent-service | `AUTH_JWKS_URL`, `BUSINESS_SERVICE_URL` | Adresses d'auth-service et de business-service (surchargées par `docker-compose.yml`) |
 | ai-agent-service | `NIM_API_KEY` | **Secret.** Clé de l'API NVIDIA NIM (`nvapi-…`) |
-| ai-agent-service | `NIM_MODEL` | Modèle du catalogue, `mistralai/mistral-nemotron` par défaut |
+| ai-agent-service | `NIM_MODEL` | Modèle du catalogue, `mistralai/mistral-nemotron` par défaut (en fin de vie : en choisir un avec le test ci-dessus) |
 | ai-agent-service | `NIM_BASE_URL` | URL de l'API, `https://integrate.api.nvidia.com/v1` par défaut (faux serveur dans les tests e2e) |
 | web | `NEXT_PUBLIC_GATEWAY_URL` | Seulement en `pnpm dev` : adresse de la gateway (vide en production, même origine) |
 
