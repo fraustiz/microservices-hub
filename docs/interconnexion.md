@@ -126,7 +126,7 @@ Authorization: Bearer <NIM_API_KEY>
 Content-Type: application/json
 
 {
-  "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+  "model": "nvidia/nemotron-3.5-super-vl-120b-a12b",
   "messages": [
     { "role": "system", "content": "<règles du prompt agent.ask>" },
     { "role": "user", "content": "<documents>...</documents>\n\n<question>...</question>" }

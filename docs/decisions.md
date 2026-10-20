@@ -127,7 +127,15 @@ Chaque choix d'architecture ou de sécurité, avec les options écartées. Les n
 
 ## D21 — Nemotron 3.5 Lightning, sans raisonnement (2026-10-20)
 
+- **Statut** : le réglage du raisonnement reste en vigueur ; le modèle est remplacé par Nemotron 3.5 Super ([D22](#d22--nemotron-35-super-qui-cite-ses-sources-2026-10-20)).
 - **Décision** : modèle par défaut `nvidia/nemotron-3.5-lightning-30b-a3b`, avec `chat_template_kwargs: { "enable_thinking": false }` à chaque appel (paramètre `reasoning` de chaque prompt). Une réponse vide après retrait du raisonnement donne `502 UPSTREAM_ERROR`. Prompts passés en `1.2.0`, texte inchangé.
 - **Raison** : aucun modèle Mistral ni OpenAI n'est servi sur le compte NIM du projet (404 ou 410 ; `openai/gpt-oss-20b` ferme la connexion). Parmi les modèles servis, Lightning est le seul modèle d'instruction généraliste de taille raisonnable. Avec le raisonnement, il a mis 4,5 s et 571 jetons pour une réponse de 8 jetons, et une réponse plus longue serait coupée par `max_tokens`. Sans raisonnement : 0,6 s, 8 jetons, JSON correct. Mesures dans [prompt-book.md](prompt-book.md), section 2.
 - **Contreparties** : écart à la lettre du sujet (« OpenAI ou Mistral »), assumé faute de modèle servi ; calculs arrondis sans raisonnement (24,96 → 25), sans effet pour un agent qui reformule des documents (règle 1 du prompt).
 - **Écarté** : `nemotron-3-ultra-550b-a55b` (très gros, donc lent, pour reformuler quelques documents) ; `nemotron-3.5-super-vl-120b-a12b` et `nemotron-3-nano-omni-30b-a3b-reasoning` (multimodaux, le second raisonne toujours) ; garder le raisonnement avec un `max_tokens` de 2 000 (environ 70 fois plus de jetons et plusieurs secondes par réponse, pour un raisonnement en anglais inutile à une reformulation) ; `/no_think` dans le prompt (sans effet sur ce modèle : réponse coupée).
+
+## D22 — Nemotron 3.5 Super, qui cite ses sources (2026-10-20)
+
+- **Décision** : modèle par défaut `nvidia/nemotron-3.5-super-vl-120b-a12b`, toujours sans raisonnement. Prompts passés en `1.4.0`, texte inchangé.
+- **Raison** : l'évaluation n°2 a montré que Lightning n'écrivait aucune référence `[Dn]` dans ses réponses, malgré la règle 3. Sur les mêmes questions, Super met la bonne référence à la fin de chaque phrase, y compris sur une réponse qui couvre 4 documents (évaluation n°3 dans [prompt-book.md](prompt-book.md), section 7). Sa latence (0,9 à 9,1 s) reste loin sous le délai de 30 s. Le seul modèle texte de même taille, `nvidia/nemotron-3-super-120b-a12b`, répond 404 pour le compte. NVIDIA indique servir `private/nvidia/nemotron-3.5-super-120b-a12b` derrière l'alias `-vl-`.
+- **Contreparties** : 1,3 à 13 fois plus lent que Lightning ; il calcule encore un total quand on le lui demande (A15), ce qui relève d'une étape de vérification chaînée, pas du choix du modèle.
+- **Écarté** : rester sur Lightning (plus rapide, mais réponses invérifiables) ; `nemotron-3-ultra-550b-a55b` (encore plus gros, non nécessaire pour les références).

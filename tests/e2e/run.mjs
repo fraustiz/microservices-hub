@@ -198,7 +198,7 @@ await check("la requête envoyée à NIM : modèle, prompt agent.ask, documents 
   equal(authorization, "Bearer nvapi-cle-factice-e2e", "clé API NIM");
   equal(
     [body.model, body.temperature, body.max_tokens, body.stream, body.chat_template_kwargs],
-    ["nvidia/nemotron-3.5-lightning-30b-a3b", 0.1, 600, false, { enable_thinking: false }],
+    ["nvidia/nemotron-3.5-super-vl-120b-a12b", 0.1, 600, false, { enable_thinking: false }],
     "paramètres",
   );
   equal(body.messages.map((m) => m.role), ["system", "user"], "rôles");

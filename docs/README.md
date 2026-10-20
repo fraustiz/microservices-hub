@@ -28,7 +28,7 @@ Point d'entrée de la documentation. Lire dans cet ordre pour comprendre le proj
 | Attendu du sujet | Où |
 | --- | --- |
 | Développer indépendamment les briques applicatives | `apps/auth-service`, `apps/business-service`, `apps/ai-agent-service` (chacun sa base, ses migrations, ses tests), `apps/web` ; contrats dans [interconnexion.md](interconnexion.md) |
-| Raccorder l'API OpenAI ou Mistral via des prompts backend | Modèle NVIDIA Nemotron 3.5 Lightning servi par l'API NVIDIA NIM, au format OpenAI : aucun modèle OpenAI ou Mistral n'est servi sur le compte du projet ([D20](decisions.md), [D21](decisions.md)) : `apps/ai-agent-service/lib` (`prompts.ts`, `nim.ts`, `agent.ts`), échange F6 de [interconnexion.md](interconnexion.md) |
+| Raccorder l'API OpenAI ou Mistral via des prompts backend | Modèle NVIDIA Nemotron 3.5 Super servi par l'API NVIDIA NIM, au format OpenAI : aucun modèle OpenAI ou Mistral n'est servi sur le compte du projet ([D20](decisions.md) à [D22](decisions.md)) : `apps/ai-agent-service/lib` (`prompts.ts`, `nim.ts`, `agent.ts`), échange F6 de [interconnexion.md](interconnexion.md) |
 | Gérer le rate limiting | Middlewares `rate-login` et `rate-agent` de `infra/traefik/dynamic.yml`, [gateway.md](gateway.md#rate-limiting) |
 | Mettre en place les règles CORS | Middleware `cors` de `infra/traefik/dynamic.yml`, [gateway.md](gateway.md#cors) |
 | **Livrable** : microservices opérationnels | `docker compose up --build`, puis http://localhost ; vérifiés par `pnpm test` et `pnpm test:e2e` ([developpement.md](developpement.md#tests)) |
@@ -44,7 +44,7 @@ Point d'entrée de la documentation. Lire dans cet ordre pour comprendre le proj
 | Gateway : routage, en-têtes de sécurité, `strip-identity`, `jwt-auth` (ForwardAuth) | Fait (S1) |
 | auth-service : login, JWT RS256, JWKS, `/auth/verify`, refresh token, logout | Fait (S2) |
 | business-service : documents filtrés par rôle et département, recherche, règles d'accès | Fait (S2) |
-| ai-agent-service : questions et résumés via NVIDIA NIM (Nemotron 3.5 Lightning), historique | Fait (S2) |
+| ai-agent-service : questions et résumés via NVIDIA NIM (Nemotron 3.5 Super), historique | Fait (S2) |
 | Front : connexion, questions à l'agent, documents, résumés | Fait (S2) |
 | CORS, rate limiting, Prompt Book V1 | Fait (S2) |
 | Tests unitaires et de bout en bout | Fait (S2) |

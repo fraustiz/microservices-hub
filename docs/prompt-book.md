@@ -4,11 +4,11 @@ Référence des prompts envoyés au LLM par ai-agent-service : texte exact, para
 
 | | |
 | --- | --- |
-| Version du Prompt Book | V1.3 (2026-10-20) : évaluations n°1 et n°2 avec le vrai modèle, `agent.ask` corrigé en `1.3.0` |
+| Version du Prompt Book | V1.4 (2026-10-20) : modèle Nemotron 3.5 Super, qui cite ses sources (comparaison avec Lightning en section 7) |
 | Code | `apps/ai-agent-service/lib/prompts.ts` (texte et paramètres), `lib/agent.ts` (enchaînement), `lib/nim.ts` (appel API) |
 | Contrôle de cohérence | `lib/prompt-book.test.ts` échoue si le texte, la version ou les paramètres d'un prompt diffèrent entre ce document et le code |
 | Fournisseur | API NVIDIA NIM, `POST /v1/chat/completions` au format OpenAI (échange F6 de [interconnexion.md](interconnexion.md)) |
-| Modèle | `nvidia/nemotron-3.5-lightning-30b-a3b` (NVIDIA Nemotron 3.5 Lightning), raisonnement désactivé |
+| Modèle | `nvidia/nemotron-3.5-super-vl-120b-a12b` (NVIDIA Nemotron 3.5 Super), raisonnement désactivé |
 
 ## 1. Principes communs
 
@@ -31,7 +31,7 @@ Ces règles valent pour tous les prompts, présents et futurs.
 
 | Paramètre | Valeur | Où le changer |
 | --- | --- | --- |
-| Modèle | `nvidia/nemotron-3.5-lightning-30b-a3b` | Variable `NIM_MODEL` d'ai-agent-service (modèle validé par le script de test de [developpement.md](developpement.md)) |
+| Modèle | `nvidia/nemotron-3.5-super-vl-120b-a12b` | Variable `NIM_MODEL` d'ai-agent-service (modèle validé par le script de test de [developpement.md](developpement.md)) |
 | URL de l'API | `https://integrate.api.nvidia.com/v1` | Variable `NIM_BASE_URL` (remplacée par un faux serveur dans les tests e2e) |
 | Clé | `NIM_API_KEY` (`nvapi-…`), uniquement dans `apps/ai-agent-service/.env` | Jamais dans le code ni dans Git |
 | Délai maximal | 30 s (`LLM_TIMEOUT_MS`) | `packages/shared/src/config.ts` |
@@ -40,7 +40,7 @@ Ces règles valent pour tous les prompts, présents et futurs.
 | Raisonnement | Désactivé : `chat_template_kwargs: { "enable_thinking": false }` à chaque appel | `reasoning` de chaque prompt, `lib/prompts.ts` |
 | Température, `max_tokens` | Propres à chaque prompt (ci-dessous) | `lib/prompts.ts` |
 
-**Pourquoi NVIDIA NIM et ce modèle** ([D20](decisions.md)) : l'API NIM est gratuite pour le développement avec un compte NVIDIA Developer, alors que le plan gratuit de Mistral n'active plus les clés API (constaté le 2026-10-20). Le modèle visé était un modèle Mistral, pour garder l'esprit du sujet (« OpenAI ou Mistral »). Aucun n'est servi sur le compte du projet, ni le seul modèle OpenAI du catalogue (relevé ci-dessous) : le projet utilise un modèle NVIDIA, Nemotron 3.5 Lightning ([D21](decisions.md)). Un modèle d'instruction généraliste suffit pour reformuler quelques documents courts en français.
+**Pourquoi NVIDIA NIM et ce modèle** ([D20](decisions.md)) : l'API NIM est gratuite pour le développement avec un compte NVIDIA Developer, alors que le plan gratuit de Mistral n'active plus les clés API (constaté le 2026-10-20). Le modèle visé était un modèle Mistral, pour garder l'esprit du sujet (« OpenAI ou Mistral »). Aucun n'est servi sur le compte du projet, ni le seul modèle OpenAI du catalogue (relevé ci-dessous) : le projet utilise un modèle NVIDIA : Nemotron 3.5 Lightning ([D21](decisions.md)), puis Nemotron 3.5 Super, qui respecte mieux les consignes ([D22](decisions.md)). Un modèle d'instruction généraliste suffit pour reformuler quelques documents courts en français.
 
 **Cycle de vie des modèles** : NVIDIA retire des modèles du catalogue. Le premier appel réel (2026-10-20) a reçu `410 Gone` : `mistralai/mistral-nemotron` est en fin de vie depuis le 2026-09-28. La liste `GET /v1/models` n'est pas fiable pour choisir un remplaçant : `mistralai/mistral-large-2-instruct` y figure mais répond `404 … Not found for account`. Le remplaçant sera choisi parmi les modèles qui répondent réellement au script de test de [developpement.md](developpement.md) ; il fera passer les prompts en version `1.2.0`. En attendant, mettre dans `NIM_MODEL` un modèle validé par ce script. Tout autre modèle du catalogue s'utilise en changeant `NIM_MODEL` ; il faut alors refaire l'évaluation de la section 7.
 
@@ -56,10 +56,10 @@ Requête de 5 jetons (« Say OK ») envoyée à chaque modèle de chat avec la c
 | OpenAI | `gpt-oss-20b` | Pas de réponse | Connexion fermée par le serveur, deux fois : écarté |
 | NVIDIA | `nemotron-3.5-lightning-30b-a3b` | 200 | **Candidat retenu** : instruction généraliste, mixture d'experts de 30 milliards de paramètres dont environ 3 actifs (d'après son nom), donc rapide |
 | NVIDIA | `nemotron-3-ultra-550b-a55b` | 200 | Très gros, donc lent : réserve si la qualité de Lightning est insuffisante |
-| NVIDIA | `nemotron-3.5-super-vl-120b-a12b` | 200 | Texte et image, plus lourd que nécessaire |
+| NVIDIA | `nemotron-3.5-super-vl-120b-a12b` | 200 | **Retenu depuis la `1.4.0`** : cite ses sources, contrairement à Lightning (section 7). NVIDIA indique servir `private/nvidia/nemotron-3.5-super-120b-a12b` : l'alias `-vl-` pointe vers ce déploiement |
 | NVIDIA | `nemotron-3-nano-omni-30b-a3b-reasoning` | 200 | Multimodal, raisonne systématiquement avant de répondre |
 | NVIDIA | `riva-translate-4b-instruct-v2`, `ising-calibration-1.5-31b` | 200 | Spécialisés (traduction, calibration) |
-| NVIDIA | `llama-3.1-nemotron-51b-instruct`, `llama-3.1-nemotron-70b-instruct`, `llama-3.1-nemotron-ultra-253b-v1`, `nemotron-4-340b-instruct`, `nemotron-3-super-120b-a12b`, `nemotron-nano-3-30b-a3b`, `mistral-nemo-minitron-8b-8k-instruct`, `llama3-chatqa-1.5-70b`, `neva-22b`, `riva-translate-4b-instruct` | 404 | Non servis pour le compte |
+| NVIDIA | `llama-3.1-nemotron-51b-instruct`, `llama-3.1-nemotron-70b-instruct`, `llama-3.1-nemotron-ultra-253b-v1`, `nemotron-4-340b-instruct`, `nemotron-3-super-120b-a12b` (revérifié : toujours 404), `nemotron-nano-3-30b-a3b`, `mistral-nemo-minitron-8b-8k-instruct`, `llama3-chatqa-1.5-70b`, `neva-22b`, `riva-translate-4b-instruct` | 404 | Non servis pour le compte |
 
 **Critères de choix d'un modèle**, dans l'ordre :
 
@@ -93,7 +93,7 @@ Critères 3 et 4 remplis. Critère 5 non rempli en l'état : sur une vraie quest
 
 **Contrepartie observée** : sans raisonnement, le modèle a arrondi un calcul (24,96 → 25). Pour l'agent, ce n'est pas bloquant : il reformule les documents (qui disent eux-mêmes 25 jours ouvrés), et la règle 1 de `agent.ask` lui interdit d'ajouter une information absente des documents, donc de calculer. Le critère « Fidélité » de l'évaluation (section 7) le vérifie.
 
-**Statut** : `nvidia/nemotron-3.5-lightning-30b-a3b` validé, modèle par défaut depuis la version `1.2.0` des prompts. Reste l'évaluation des réponses dans l'application (section 7). Une fois validé, il deviendra la valeur par défaut de `NIM_MODEL`, avec les prompts en version `1.2.0`, une entrée au journal (section 9) et la décision D21. S'il raisonne avant de répondre, le raisonnement sera désactivé ou la marge de `max_tokens` augmentée, et noté ici.
+**Statut** : `nvidia/nemotron-3.5-lightning-30b-a3b` validé techniquement et modèle par défaut des versions `1.2.0` et `1.3.0` ; remplacé en `1.4.0` par `nvidia/nemotron-3.5-super-vl-120b-a12b`, qui cite ses sources (évaluation n°3, section 7). Lightning reste l'option la plus rapide si la latence devient prioritaire. Une fois validé, il deviendra la valeur par défaut de `NIM_MODEL`, avec les prompts en version `1.2.0`, une entrée au journal (section 9) et la décision D21. S'il raisonne avant de répondre, le raisonnement sera désactivé ou la marge de `max_tokens` augmentée, et noté ici.
 
 **Pourquoi pas de mode JSON imposé** : NIM propose plusieurs mécanismes (`response_format`, `guided_json`) dont le support et la syntaxe varient selon les modèles et les versions. Les envoyer exposerait l'agent à des erreurs 400 au moindre changement de modèle. La sortie JSON est donc demandée par la règle 7 du prompt, le code extrait l'objet même s'il est entouré de texte ou d'un bloc de code, et se replie sur le texte brut sinon (section 4).
 
@@ -105,8 +105,8 @@ Erreurs du fournisseur (clé invalide 401, modèle absent du catalogue 404, mod�
 
 | Prompt | Version | Route | Sortie | Température | `max_tokens` | Raisonnement |
 | --- | --- | --- | --- | --- | --- | --- |
-| `agent.ask` | `1.3.0` | `POST /agent/ask` | JSON `{ answer, sources }` (demandé par le prompt) | 0,1 | 600 | désactivé |
-| `agent.summarize` | `1.2.0` | `POST /agent/summarize` | Texte : 3 à 5 puces | 0,2 | 400 | désactivé |
+| `agent.ask` | `1.4.0` | `POST /agent/ask` | JSON `{ answer, sources }` (demandé par le prompt) | 0,1 | 600 | désactivé |
+| `agent.summarize` | `1.4.0` | `POST /agent/summarize` | Texte : 3 à 5 puces | 0,2 | 400 | désactivé |
 
 ## 4. `agent.ask` — répondre à une question à partir des documents
 
@@ -324,7 +324,27 @@ Même modèle, `agent.ask` `1.3.0`, `agent.summarize` `1.2.0`. Cas A1 à A6 et S
 - **Références dans le texte** (A1, A14, A15) : le modèle renseigne `sources` mais n'écrit plus aucun `[Dn]` dans `answer`, malgré la règle 3 (il le faisait en évaluation n°1 : la sortie varie d'un appel à l'autre). L'utilisateur voit les sources sous la réponse, mais ne sait pas quelle phrase vient de quel document.
 - **Calcul demandé explicitement** (A15) : le modèle additionne malgré la règle 1. Le calcul est juste ici (25 + 10), mais le même modèle a arrondi 24,96 en 25 lors du test du raisonnement.
 
-**Conclusion** : sans raisonnement, Nemotron 3.5 Lightning ne respecte pas toutes les consignes de format et de fidélité par le seul texte du prompt. Réécrire encore les règles a peu de chances de suffire. Il faut un contrôle qui ne dépende pas de la bonne volonté du modèle : une étape de vérification chaînée après la réponse, qui attribue chaque phrase à un document et écarte les chiffres absents des documents.
+**Conclusion** : sans raisonnement, Nemotron 3.5 Lightning ne respecte pas toutes les consignes de format et de fidélité par le seul texte du prompt. Réécrire encore les règles a peu de chances de suffire. Deux leviers : un modèle plus grand (évaluation n°3), et un contrôle qui ne dépende pas de la bonne volonté du modèle (étape de vérification chaînée après la réponse).
+
+### Évaluation n°3 : Lightning contre Super (2026-10-20, partielle)
+
+`agent.ask` `1.3.0` (même texte), raisonnement désactivé, compte chloe, sur les trois cas en échec de l'évaluation n°2. Seul `NIM_MODEL` change.
+
+| Cas | Critère | Lightning (`nemotron-3.5-lightning-30b-a3b`) | Super (`nemotron-3.5-super-vl-120b-a12b`) |
+| --- | --- | --- | --- |
+| A1 | Réponse | 25 jours ouvrés et 10 RTT | Idem, plus la fermeture estivale et le report (3 phrases, toutes dans le document) |
+| A1 | Citation | **0** : aucun `[Dn]` | 1 : `[D1]` à la fin de chaque phrase |
+| A1 | Mesures | 899 + 45 jetons, 0,7 s | 899 + 106 jetons, 9,1 s (premier appel, probablement à froid) |
+| A15 | Fidélité | **0** : « 35 jours au total » | **0** : « soit 35 jours d'absence au total » |
+| A15 | Citation | **0** | 1 |
+| A15 | Mesures | 907 + 50, 0,7 s | 907 + 61, 0,9 s |
+| A14 | Citation | **0** : aucun `[Dn]` sur 4 documents | 1 : une référence juste par phrase (congés D2, télétravail D3, notes de frais D1, recrutement D4) |
+| A14 | Forme | 1 (4 phrases) | 1 (4 phrases, longues) |
+| A14 | Mesures | 1 034 + 228, 2,2 s | 1 034 + 295, 4,6 s |
+
+**Résultat** : Super corrige les références (critère Citation à 1 sur les trois cas), pas le calcul demandé explicitement (A15). Il est 1,3 à 13 fois plus lent, mais reste loin sous le délai de 30 s. `enable_thinking: false` fonctionne aussi sur lui : pas de raisonnement, sorties courtes. Super devient le modèle par défaut (`1.4.0`, [D22](decisions.md)).
+
+**Reste à faire** : le calcul de A15, par une étape de vérification chaînée ; les cas A3, A4, A6, S1 et S2 avec Super (évaluation n°4, avec la chaîne).
 
 ## 8. Modifier un prompt
 
@@ -350,6 +370,8 @@ La version est enregistrée avec chaque échange (`exchanges.prompt_version`) : 
 | 2026-10-20 | `agent.ask` | `1.2.0` | Modèle `nvidia/nemotron-3.5-lightning-30b-a3b` (aucun modèle Mistral servi sur le compte), raisonnement désactivé (`enable_thinking: false`). Texte inchangé |
 | 2026-10-20 | `agent.summarize` | `1.2.0` | Même modèle, raisonnement désactivé. Texte inchangé |
 | 2026-10-20 | `agent.ask` | `1.3.0` | Corrections après l'évaluation n°1 : règle 1 (aucun calcul, total ni déduction absents des documents), règle 3 (référence à la fin de chaque phrase), règle 6 (garder l'essentiel de chaque document quand la question en couvre plusieurs) |
+| 2026-10-20 | `agent.ask` | `1.4.0` | Modèle `nvidia/nemotron-3.5-super-vl-120b-a12b` : cite ses sources, contrairement à Lightning (évaluation n°3). Texte inchangé |
+| 2026-10-20 | `agent.summarize` | `1.4.0` | Même modèle. Texte inchangé, résumés à réévaluer avec ce modèle |
 
 ## 10. Limites connues de la V1
 

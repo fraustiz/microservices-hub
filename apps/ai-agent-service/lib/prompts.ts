@@ -37,7 +37,7 @@ export const NOT_FOUND_ANSWER = "Je ne trouve pas cette information dans les doc
 
 export const ASK_PROMPT: PromptDefinition = {
   id: "agent.ask",
-  version: "1.3.0",
+  version: "1.4.0",
   temperature: 0.1,
   maxTokens: 600,
   reasoning: false,
@@ -55,7 +55,7 @@ Règles :
 
 export const SUMMARIZE_PROMPT: PromptDefinition = {
   id: "agent.summarize",
-  version: "1.2.0",
+  version: "1.4.0",
   temperature: 0.2,
   maxTokens: 400,
   reasoning: false,

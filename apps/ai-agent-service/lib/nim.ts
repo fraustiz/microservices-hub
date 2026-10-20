@@ -31,7 +31,7 @@ export async function chat(prompt: PromptDefinition, messages: ChatMessage[], re
     throw unavailable();
   }
   const baseUrl = process.env.NIM_BASE_URL || "https://integrate.api.nvidia.com/v1";
-  const model = process.env.NIM_MODEL || "nvidia/nemotron-3.5-lightning-30b-a3b";
+  const model = process.env.NIM_MODEL || "nvidia/nemotron-3.5-super-vl-120b-a12b";
 
   let res: Response;
   try {
