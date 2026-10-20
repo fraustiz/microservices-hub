@@ -146,16 +146,18 @@ Le front (port 3000) appelle alors la gateway (port 80) : c'est une autre origin
 - auth-service redémarre en boucle avec `JWT_PRIVATE_KEY n'est pas défini` : lancer `pnpm env:init`.
 - auth-service s'arrête sur `JWT_PRIVATE_KEY illisible` (ou, avant cette vérification, `ERR_OSSL_UNSUPPORTED` / `DECODER routines::unsupported`) : la variable ne contient pas une clé PEM (chemin de fichier, secret partagé, PEM sur plusieurs lignes sans guillemets…). Formats acceptés : PEM sur une ligne avec des `\n` (celui de `pnpm env:init`), PEM sur plusieurs lignes entre guillemets, ou PEM entier en base64. Le plus simple : effacer la valeur pour garder `JWT_PRIVATE_KEY=` (avec ses éventuelles lignes suivantes), puis `pnpm env:init` et `docker compose up`.
 - L'agent répond « Service d'IA indisponible » : `NIM_API_KEY` absente ou invalide (401), modèle introuvable ou non servi pour ce compte (404) ou en fin de vie (410) : choisir un modèle qui répond au test ci-dessous et le mettre dans `NIM_MODEL` ou limite de la clé atteinte (429) ; `docker compose logs ai-agent-service` donne le statut renvoyé par NIM.
-- Trouver les modèles Mistral **réellement** servis pour ta clé : `GET /v1/models` liste aussi des modèles qui répondent 404, donc ce script envoie une requête de 5 jetons à chacun (PowerShell ; la clé est lue dans le `.env` sans être affichée) :
+- Trouver les modèles **réellement** servis pour ta clé : `GET /v1/models` liste aussi des modèles qui répondent 404 ou 410, donc ce script envoie une requête de 5 jetons à chaque modèle de chat Mistral, NVIDIA et OpenAI, avec une pause pour rester sous la limite de la clé (PowerShell ; la clé est lue dans le `.env` sans être affichée). Dernier relevé : [prompt-book.md](prompt-book.md), section 2.
 
   ```powershell
   $key = ((Select-String -Path apps/ai-agent-service/.env -Pattern '^NIM_API_KEY=(.*)$').Matches[0].Groups[1].Value).Trim().Trim('"')
   $h = @{ Authorization = "Bearer $key" }
-  $models = @((Invoke-RestMethod https://integrate.api.nvidia.com/v1/models -Headers $h).data.id | Where-Object { $_ -like "mistralai/*" })
-  foreach ($m in $models | Sort-Object -Unique) {
+  $models = @((Invoke-RestMethod https://integrate.api.nvidia.com/v1/models -Headers $h).data.id |
+    Where-Object { $_ -match '^(mistralai|nvidia|openai)/' -and $_ -notmatch 'embed|rerank|retriever|guard|safety|reward|parse|ocr|vila|vlm|clip|cosmos|vision' } | Sort-Object -Unique)
+  foreach ($m in $models) {
     $body = @{ model = $m; messages = @(@{ role = "user"; content = "Say OK" }); max_tokens = 5 } | ConvertTo-Json -Depth 4
     try { Invoke-RestMethod -Method Post https://integrate.api.nvidia.com/v1/chat/completions -Headers $h -ContentType "application/json" -Body $body -TimeoutSec 60 | Out-Null; "OK    $m" }
     catch { "ERR   $m   $($_.Exception.Response.StatusCode.value__)" }
+    Start-Sleep -Milliseconds 1600
   }
   ```
 

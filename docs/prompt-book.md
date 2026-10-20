@@ -39,9 +39,36 @@ Ces règles valent pour tous les prompts, présents et futurs.
 | Mode JSON de l'API | Non utilisé : le format est demandé par le prompt et l'objet extrait par le code | — |
 | Température, `max_tokens` | Propres à chaque prompt (ci-dessous) | `lib/prompts.ts` |
 
-**Pourquoi NVIDIA NIM et ce modèle** ([D20](decisions.md)) : l'API NIM est gratuite pour le développement avec un compte NVIDIA Developer, alors que le plan gratuit de Mistral n'active plus les clés API (constaté le 2026-10-20). Le modèle reste un modèle Mistral, ce qui garde l'esprit du sujet (« OpenAI ou Mistral »), et un modèle d'instruction généraliste suffit pour reformuler quelques documents courts en français.
+**Pourquoi NVIDIA NIM et ce modèle** ([D20](decisions.md)) : l'API NIM est gratuite pour le développement avec un compte NVIDIA Developer, alors que le plan gratuit de Mistral n'active plus les clés API (constaté le 2026-10-20). Le modèle visé était un modèle Mistral, pour garder l'esprit du sujet (« OpenAI ou Mistral »). Aucun n'est servi sur le compte du projet (relevé ci-dessous) : le projet passe à un modèle NVIDIA, en cours de validation. Un modèle d'instruction généraliste suffit pour reformuler quelques documents courts en français.
 
 **Cycle de vie des modèles** : NVIDIA retire des modèles du catalogue. Le premier appel réel (2026-10-20) a reçu `410 Gone` : `mistralai/mistral-nemotron` est en fin de vie depuis le 2026-09-28. La liste `GET /v1/models` n'est pas fiable pour choisir un remplaçant : `mistralai/mistral-large-2-instruct` y figure mais répond `404 … Not found for account`. Le remplaçant sera choisi parmi les modèles qui répondent réellement au script de test de [developpement.md](developpement.md) ; il fera passer les prompts en version `1.2.0`. En attendant, mettre dans `NIM_MODEL` un modèle validé par ce script. Tout autre modèle du catalogue s'utilise en changeant `NIM_MODEL` ; il faut alors refaire l'évaluation de la section 7.
+
+### Modèles testés sur le compte du projet (2026-10-20)
+
+Requête de 5 jetons (« Say OK ») envoyée à chaque modèle de chat avec la clé du projet (script de [developpement.md](developpement.md)). Le catalogue évolue : refaire ce relevé avant tout changement de modèle.
+
+| Famille | Modèles | Résultat | Remarque |
+| --- | --- | --- | --- |
+| Mistral | `mistral-nemotron` (modèle de la V1.1), `mistral-large-3-675b-instruct-2512` | 410 | En fin de vie |
+| Mistral | `mistral-large-2-instruct`, `mistral-large`, `mistral-medium-3-instruct`, `mistral-small-3.1-24b-instruct-2503`, `mistral-7b-instruct-v0.3`, `codestral-22b-instruct-v0.1`, `magistral-small-2506`, `mixtral-8x22b-v0.1` | 404 | Listés par `GET /v1/models`, mais non servis pour le compte |
+| Meta | `llama-3.3-70b-instruct` | 410 | En fin de vie |
+| OpenAI | `gpt-oss-20b` | Pas de réponse | Délai probablement dépassé ; à retester (seule option « OpenAI » du catalogue) |
+| NVIDIA | `nemotron-3.5-lightning-30b-a3b` | 200 | **Candidat retenu** : instruction généraliste, mixture d'experts de 30 milliards de paramètres dont environ 3 actifs (d'après son nom), donc rapide |
+| NVIDIA | `nemotron-3-ultra-550b-a55b` | 200 | Très gros, donc lent : réserve si la qualité de Lightning est insuffisante |
+| NVIDIA | `nemotron-3.5-super-vl-120b-a12b` | 200 | Texte et image, plus lourd que nécessaire |
+| NVIDIA | `nemotron-3-nano-omni-30b-a3b-reasoning` | 200 | Multimodal, raisonne systématiquement avant de répondre |
+| NVIDIA | `riva-translate-4b-instruct-v2`, `ising-calibration-1.5-31b` | 200 | Spécialisés (traduction, calibration) |
+| NVIDIA | `llama-3.1-nemotron-51b-instruct`, `llama-3.1-nemotron-70b-instruct`, `llama-3.1-nemotron-ultra-253b-v1`, `nemotron-4-340b-instruct`, `nemotron-3-super-120b-a12b`, `nemotron-nano-3-30b-a3b`, `mistral-nemo-minitron-8b-8k-instruct`, `llama3-chatqa-1.5-70b`, `neva-22b`, `riva-translate-4b-instruct` | 404 | Non servis pour le compte |
+
+**Critères de choix d'un modèle**, dans l'ordre :
+
+1. il répond réellement (200) avec la clé du projet ;
+2. c'est un modèle d'instruction généraliste (ni modèle de base, ni modèle spécialisé : traduction, code, vision) ;
+3. il suit les consignes en français et rend l'objet JSON de la règle 7 de `agent.ask` ;
+4. il répond nettement sous le délai de 30 s ;
+5. son éventuel raisonnement ne consomme pas les `max_tokens` (600 pour `agent.ask`, 400 pour `agent.summarize`) au point de couper la réponse.
+
+**Statut** : `nemotron-3.5-lightning-30b-a3b` remplit les critères 1 et 2 ; les critères 3 à 5 sont en cours de vérification (format du message renvoyé, présence et place du raisonnement, durée, qualité). Une fois validé, il deviendra la valeur par défaut de `NIM_MODEL`, avec les prompts en version `1.2.0`, une entrée au journal (section 9) et la décision D21. S'il raisonne avant de répondre, le raisonnement sera désactivé ou la marge de `max_tokens` augmentée, et noté ici.
 
 **Pourquoi pas de mode JSON imposé** : NIM propose plusieurs mécanismes (`response_format`, `guided_json`) dont le support et la syntaxe varient selon les modèles et les versions. Les envoyer exposerait l'agent à des erreurs 400 au moindre changement de modèle. La sortie JSON est donc demandée par la règle 7 du prompt, le code extrait l'objet même s'il est entouré de texte ou d'un bloc de code, et se replie sur le texte brut sinon (section 4).
 
