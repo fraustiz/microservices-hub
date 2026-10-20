@@ -503,7 +503,14 @@ Nemotron 3.5 Super sans raisonnement, chaîne `agent.search` `1.0.0` → `agent.
 
 **Résultat** : tous les critères à 1 sur les cas `agent.ask`. Le défaut des évaluations n°2 et n°3 (total calculé, A15) est corrigé par la vérification, qui a proposé une correction acceptée par le contrôle des nombres. La recherche par synonymes fonctionne (C1). Aucune phrase retirée sur ces cas.
 
-**Points d'attention** : latence de 1,3 à 20,1 s selon le nombre d'appels et la longueur de la réponse (A1 à 20 s, proche de ce qu'un utilisateur accepte) ; piste : faire tourner `agent.search` sur Lightning, plus rapide. Les résumés S1 et S2 restent à réévaluer avec Super (`agent.summarize` `1.4.0`).
+**Points d'attention** : latence de 1,3 à 20,1 s selon le nombre d'appels et la longueur de la réponse (A1 à 20 s, proche de ce qu'un utilisateur accepte) ; piste : faire tourner `agent.search` sur Lightning, plus rapide. Les résumés S1 et S2 ont été réévalués avec Super (`agent.summarize` `1.4.0`, tableau ci-dessous).
+
+| Cas | Action | Résultat | Fidélité | Forme |
+| --- | --- | --- | --- | --- |
+| S1 | chloe : « Résumer » sur « Remboursement des notes de frais » | 4 puces « - », tous les chiffres conservés (30 jours, 25 €, 120 € / 90 €, seconde classe au-delà de 3 h, 7 jours, paie du mois suivant) | 1 | 1 |
+| S2 | bruno : « Résumer » sur « Grille salariale 2026 » | Première puce exacte « - Document confidentiel : ne pas diffuser. », puis 4 puces avec toutes les fourchettes et l'enveloppe de 3,2 % dont 1 % | 1 | 1 |
+
+**Conclusion de l'évaluation n°4** : tous les cas manuels du Prompt Book (A1, A3, A4, A6, A14, A15, C1, S1, S2) sont à 1 sur tous leurs critères avec le modèle et les prompts par défaut. L'intégration du LLM est validée.
 
 ## 8. Modifier un prompt
 
