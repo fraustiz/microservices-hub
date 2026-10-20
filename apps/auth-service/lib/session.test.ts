@@ -44,6 +44,23 @@ describe("clés et jeton d'accès", () => {
     expect((await verifyAccessToken(oldToken, keys.verify)).id).toBe(user.id);
   });
 
+  it("accepte un PEM entier encodé en base64", async () => {
+    vi.stubEnv("JWT_PRIVATE_KEY", Buffer.from(pem()).toString("base64"));
+    const keys = await (await import("./keys")).getKeys();
+    expect(keys.jwks.keys).toHaveLength(1);
+  });
+
+  it.each([
+    ["chemin de fichier", "keys/jwt-private.pem"],
+    ["PEM tronqué à sa première ligne", "-----BEGIN PRIVATE KEY-----"],
+    ["secret partagé", "un-secret-partage"],
+  ])("valeur illisible (%s) : message clair, sans la valeur", async (_, value) => {
+    vi.stubEnv("JWT_PRIVATE_KEY", value);
+    const err = await (await import("./keys")).getKeys().catch((e: Error) => e);
+    expect((err as Error).message).toMatch(/^JWT_PRIVATE_KEY illisible : clé PEM attendue.*pnpm env:init/);
+    expect((err as Error).message).not.toContain(value);
+  });
+
   it("refuse de démarrer sans clé", async () => {
     vi.stubEnv("JWT_PRIVATE_KEY", "");
     await expect((await import("./keys")).getKeys()).rejects.toThrow(/JWT_PRIVATE_KEY/);

@@ -113,7 +113,7 @@ docker compose up --build
 - `.env` absent : il est créé depuis `.env.example` ;
 - `.env` existant : les variables ajoutées depuis à `.env.example` y sont ajoutées, avec leurs commentaires. Une valeur déjà présente n'est **jamais** modifiée ;
 - variables du `.env` que `.env.example` ne connaît plus (par exemple `MISTRAL_*` depuis [D20](decisions.md)) : elles sont signalées, à supprimer à la main ;
-- `JWT_PRIVATE_KEY` vide : la clé est générée.
+- `JWT_PRIVATE_KEY` vide : la clé est générée ; présente mais illisible (chemin de fichier, PEM tronqué…) : elle est signalée, jamais remplacée.
 
 À relancer après chaque mise à jour du dépôt qui touche un `.env.example`. Pour interroger le vrai LLM, créer une clé gratuite sur https://build.nvidia.com (compte NVIDIA Developer) et la renseigner dans `NIM_API_KEY` de `apps/ai-agent-service/.env`.
 
@@ -144,6 +144,7 @@ Le front (port 3000) appelle alors la gateway (port 80) : c'est une autre origin
 - `failed to connect to the docker API` : Docker Desktop n'est pas démarré.
 - `env file ... not found` : lancer `pnpm env:init`.
 - auth-service redémarre en boucle avec `JWT_PRIVATE_KEY n'est pas défini` : lancer `pnpm env:init`.
+- auth-service s'arrête sur `JWT_PRIVATE_KEY illisible` (ou, avant cette vérification, `ERR_OSSL_UNSUPPORTED` / `DECODER routines::unsupported`) : la variable ne contient pas une clé PEM (chemin de fichier, secret partagé, PEM sur plusieurs lignes sans guillemets…). Formats acceptés : PEM sur une ligne avec des `\n` (celui de `pnpm env:init`), PEM sur plusieurs lignes entre guillemets, ou PEM entier en base64. Le plus simple : effacer la valeur pour garder `JWT_PRIVATE_KEY=` (avec ses éventuelles lignes suivantes), puis `pnpm env:init` et `docker compose up`.
 - L'agent répond « Service d'IA indisponible » : `NIM_API_KEY` absente ou invalide (401), modèle introuvable (404 : vérifier `NIM_MODEL` sur build.nvidia.com) ou limite de la clé atteinte (429) ; `docker compose logs ai-agent-service` donne le statut renvoyé par NIM.
 - `.env` créé avant une mise à jour (par exemple encore en `MISTRAL_*` dans ai-agent-service) : relancer `pnpm env:init`, qui ajoute les variables manquantes (`NIM_*`) et liste celles à supprimer.
 - `docker compose logs gateway` : requêtes reçues par Traefik.
