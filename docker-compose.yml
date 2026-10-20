@@ -3,7 +3,7 @@
 # traefik.* ni accès au socket Docker, pour ne pas interférer avec un autre Traefik sur l'hôte.
 #   public     : gateway <-> front
 #   internal    : gateway <-> services, et services entre eux (pas d'accès Internet)
-#   egress      : sortie Internet, UNIQUEMENT pour ai-agent-service (API Mistral)
+#   egress      : sortie Internet, UNIQUEMENT pour ai-agent-service (API NVIDIA NIM)
 #   *-db-net    : chaque service <-> sa propre base, rien d'autre
 
 x-service: &service

@@ -6,7 +6,7 @@ Plateforme d'entreprise en microservices : authentification, règles métier et 
 navigateur → Traefik (gateway, seul port exposé)
                ├─ /auth/**  → auth-service      → auth_db
                ├─ /api/**   → business-service  → business_db
-               ├─ /agent/** → ai-agent-service  → agent_db, API Mistral
+               ├─ /agent/** → ai-agent-service  → agent_db, API NVIDIA NIM
                └─ /         → web (Next.js)
 ```
 
@@ -23,7 +23,7 @@ pnpm env:init                                 # crée les .env et la clé de sig
 docker compose up --build                     # puis http://localhost
 ```
 
-Pour que l'agent IA réponde, renseigner `MISTRAL_API_KEY` dans `apps/ai-agent-service/.env` (sans clé, il répond « Service d'IA indisponible »).
+Pour que l'agent IA réponde, créer une clé gratuite sur [build.nvidia.com](https://build.nvidia.com) et la renseigner dans `NIM_API_KEY` de `apps/ai-agent-service/.env` (sans clé, il répond « Service d'IA indisponible »).
 
 `docker compose ps` doit montrer les 8 conteneurs démarrés, et http://localhost afficher la page de connexion. Comptes de démonstration : `alice@hub.local` (admin), `bruno@hub.local` (manager RH), `chloe@hub.local` (employée RH), `david@hub.local` (employé tech), mot de passe `hub-demo-2026`.
 
@@ -32,7 +32,7 @@ Pour que l'agent IA réponde, renseigner `MISTRAL_API_KEY` dans `apps/ai-agent-s
 ```bash
 pnpm typecheck && pnpm test                   # types et tests unitaires
 docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml up -d --build
-pnpm test:e2e                                 # bout en bout via la gateway, avec un faux serveur Mistral
+pnpm test:e2e                                 # bout en bout via la gateway, avec un faux serveur NIM
 ```
 
 ## Structure
@@ -42,8 +42,8 @@ pnpm test:e2e                                 # bout en bout via la gateway, ave
 | `apps/web` | Front Next.js |
 | `apps/auth-service` | Next.js API seul (auth, JWT, refresh token) |
 | `apps/business-service` | Next.js API seul (documents, règles d'accès) |
-| `apps/ai-agent-service` | Next.js API seul (prompts, LLM Mistral, historique) |
+| `apps/ai-agent-service` | Next.js API seul (prompts, LLM via NVIDIA NIM, historique) |
 | `packages/shared` | Code partagé (jamais de données) : `requireAuth`, format d'erreur |
 | `infra/traefik` | Configuration de la gateway (routage, ForwardAuth, CORS, rate limiting) |
-| `tests/e2e` | Tests de bout en bout et faux serveur Mistral |
+| `tests/e2e` | Tests de bout en bout et faux serveur NIM |
 | `docs` | Documentation, dont le Prompt Book |

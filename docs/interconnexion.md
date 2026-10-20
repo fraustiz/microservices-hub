@@ -11,7 +11,7 @@ Ce document est le contrat entre les services. Les réseaux et le routage qui re
 | Style | REST, corps JSON (UTF-8), sur HTTP/1.1 | Simple, outillé, lisible dans les journaux |
 | Mode | Synchrone : chaque appel attend sa réponse | Chaque échange a besoin du résultat pour continuer (vérifier un jeton, lire des documents avant d'interroger le LLM). Aucun traitement différé à ce stade, donc pas de file de messages ([décision D11](decisions.md)). |
 | Adressage | Nom du service Docker et port 3000 : `http://business-service:3000` | Résolu par le DNS interne de Docker : pas d'adresse IP en dur, pas d'annuaire à maintenir |
-| Transport | HTTP dans les réseaux Docker internes, HTTPS vers l'API Mistral | Le trafic interne ne quitte pas l'hôte ; le seul échange qui sort sur Internet est chiffré |
+| Transport | HTTP dans les réseaux Docker internes, HTTPS vers l'API NVIDIA NIM | Le trafic interne ne quitte pas l'hôte ; le seul échange qui sort sur Internet est chiffré |
 | Identité | Le JWT de l'utilisateur accompagne chaque appel | Chaque service vérifie lui-même qui est à l'origine de la requête. Aucun service n'a de droits propres. |
 | Délais | 3 s entre services, 30 s vers le LLM | Une dépendance lente ne bloque pas toute la chaîne |
 | Corrélation | En-tête `X-Request-Id`, recopié d'appel en appel | Suivre une même requête dans les journaux de tous les services |
@@ -38,7 +38,7 @@ Numérotation reprise dans la suite du document. Les composants sont ceux du [sc
 | F3 | Gateway | Service cible (`/auth`, `/api`, `/agent`) ou web (`/`) | HTTP | `internal` (`public` pour web) | Cookie + `X-User-*` | géré par Traefik |
 | F4 | business-service, ai-agent-service | auth-service `GET /.well-known/jwks.json` | HTTP | `internal` | Aucune (clé publique) | 3 s |
 | F5 | ai-agent-service | business-service `GET /api/documents` | HTTP | `internal` | `Authorization: Bearer` (JWT de l'utilisateur) | 3 s |
-| F6 | ai-agent-service | API Mistral | HTTPS | `egress` | Clé API Mistral | 30 s |
+| F6 | ai-agent-service | API NVIDIA NIM | HTTPS | `egress` | Clé API NIM | 30 s |
 | F7 | Chaque service | Sa propre base | PostgreSQL (5432) | `<service>-db-net` | Identifiants de la base | 3 s (connexion) |
 | F8 | Docker | `/health` de chaque conteneur | HTTP | Local au conteneur | Aucune | 3 s |
 
@@ -117,30 +117,32 @@ X-Request-Id: 7f3c9a2e-...
 - business-service filtre selon le rôle et le département du jeton : l'agent reçoit exactement ce que l'utilisateur obtiendrait en appelant `/api/documents` lui-même.
 - Contrat de la route : [section 5](#get-apidocuments).
 
-### F6 : l'agent IA interroge Mistral
+### F6 : l'agent IA interroge le LLM (NVIDIA NIM)
 
 ```http
 POST /v1/chat/completions HTTP/1.1
-Host: api.mistral.ai
-Authorization: Bearer <MISTRAL_API_KEY>
+Host: integrate.api.nvidia.com
+Authorization: Bearer <NIM_API_KEY>
 Content-Type: application/json
 
 {
-  "model": "mistral-small-latest",
+  "model": "mistralai/mistral-nemotron",
   "messages": [
     { "role": "system", "content": "<règles du prompt agent.ask>" },
     { "role": "user", "content": "<documents>...</documents>\n\n<question>...</question>" }
   ],
   "temperature": 0.1,
   "max_tokens": 600,
-  "response_format": { "type": "json_object" }
+  "stream": false
 }
 ```
 
+Format OpenAI : réponse `{ "model", "choices": [{ "message": { "content" } }], "usage" }`. Aucun mode JSON n'est imposé : le format de sortie est demandé par le prompt ([prompt-book.md](prompt-book.md), section 2).
+
 - C'est le seul échange qui sort de la plateforme, et ai-agent-service est le seul service connecté au réseau `egress`.
-- Ne part vers Mistral que la question et les documents reçus en F5 : jamais de jeton, d'identifiant ni de donnée d'un autre utilisateur.
-- La clé API n'existe que dans les variables d'environnement d'ai-agent-service (`MISTRAL_API_KEY`).
-- Si aucun document autorisé ne correspond à la question, Mistral n'est pas appelé : l'agent répond « Je ne trouve pas cette information… ».
+- Ne part vers NVIDIA que la question et les documents reçus en F5 : jamais de jeton, d'identifiant ni de donnée d'un autre utilisateur.
+- La clé API n'existe que dans les variables d'environnement d'ai-agent-service (`NIM_API_KEY`).
+- Si aucun document autorisé ne correspond à la question, le LLM n'est pas appelé : l'agent répond « Je ne trouve pas cette information… ».
 - Texte exact des prompts, paramètres et traitement de la réponse : [prompt-book.md](prompt-book.md).
 
 ### F7 : chaque service et sa base
@@ -165,7 +167,7 @@ sequenceDiagram
   participant A as auth-service
   participant I as ai-agent-service
   participant S as business-service
-  participant M as API Mistral
+  participant M as API NVIDIA NIM
   B->>G: F1 POST /agent/ask (cookie access_token)
   G->>A: F2 GET /auth/verify (Cookie)
   A-->>G: 200 + X-User-Id, X-User-Role, X-User-Dept
@@ -303,7 +305,7 @@ Réponse 200 :
 
 `sources` liste les documents utilisés pour la réponse : l'utilisateur peut vérifier d'où vient l'information. `ref` est la référence citée entre crochets dans `answer`.
 
-Erreurs : 400 `BAD_REQUEST`, 401 `UNAUTHORIZED`, 429 `RATE_LIMITED`, 502 `UPSTREAM_ERROR` (service métier ou Mistral indisponible).
+Erreurs : 400 `BAD_REQUEST`, 401 `UNAUTHORIZED`, 429 `RATE_LIMITED`, 502 `UPSTREAM_ERROR` (service métier ou LLM indisponible).
 
 ### `POST /agent/summarize`
 
@@ -313,7 +315,7 @@ Requête : `{ "documentId": "uuid" }`. Réponse 200 :
 { "summary": "- ...\n- ...\n- ...", "source": { "id": "uuid", "title": "Remboursement des notes de frais" } }
 ```
 
-Erreurs : 400 `BAD_REQUEST`, 401, 404 `NOT_FOUND` (document inexistant ou non autorisé : Mistral n'est pas appelé), 429, 502 `UPSTREAM_ERROR`.
+Erreurs : 400 `BAD_REQUEST`, 401, 404 `NOT_FOUND` (document inexistant ou non autorisé : le LLM n'est pas appelé), 429, 502 `UPSTREAM_ERROR`.
 
 ### `GET /agent/history`
 
@@ -350,7 +352,7 @@ Toute erreur, quel que soit le service, a la même forme :
 | `CONFLICT` | 409 | Ressource déjà existante (règle d'accès en double) |
 | `RATE_LIMITED` | 429 | Trop de requêtes |
 | `INTERNAL` | 500 | Erreur inattendue (message générique, détail dans les journaux) |
-| `UPSTREAM_ERROR` | 502 | Un service appelé ou Mistral n'a pas répondu correctement |
+| `UPSTREAM_ERROR` | 502 | Un service appelé ou le LLM n'a pas répondu correctement |
 
 `requestId` reprend l'en-tête `X-Request-Id`, ou un UUID généré s'il est absent. Le même identifiant apparaît dans la réponse et dans les journaux de chaque service traversé.
 
@@ -366,7 +368,7 @@ Un service ne renvoie jamais tel quel le corps d'erreur d'un service appelé : i
 | 404 sur `GET /api/documents/{id}` | 404 `NOT_FOUND` : document inexistant ou non autorisé (résumé demandé par l'utilisateur) |
 | Autre 4xx | 502 `UPSTREAM_ERROR` : erreur d'intégration, détail dans les journaux |
 | 5xx, délai dépassé, connexion refusée | 502 `UPSTREAM_ERROR` |
-| Mistral : 429, 5xx ou délai dépassé | 502 `UPSTREAM_ERROR`, message « Service d'IA indisponible » |
+| NIM : 401, 404 (modèle inconnu), 429, 5xx ou délai dépassé | 502 `UPSTREAM_ERROR`, message « Service d'IA indisponible » |
 
 ### Pas de nouvelle tentative automatique
 

@@ -15,7 +15,7 @@ Monorepo **pnpm** (espaces de travail) orchestré par **Turborepo**. Chaque doss
 │   └── shared/               Code partagé (@hub/shared)
 ├── infra/traefik/dynamic.yml Configuration de la gateway
 ├── scripts/init-env.mjs      Création des .env et de la clé JWT (pnpm env:init)
-├── tests/e2e/                Tests de bout en bout et faux serveur Mistral
+├── tests/e2e/                Tests de bout en bout et faux serveur NVIDIA NIM
 ├── docs/                     Documentation (ce dossier)
 ├── docker-compose.yml        Toute la plateforme en local
 ├── Dockerfile                Image commune aux 4 apps
@@ -62,7 +62,7 @@ apps/<service>/
 | --- | --- |
 | auth-service | `keys.ts` (clé privée, JWKS, rotation), `session.ts` (jeton d'accès, refresh token, cookies), `users.ts` |
 | business-service | `documents.ts` (recherche et règle de visibilité en SQL), `rules.ts` (règles d'accès), `seed.ts` (jeu de démonstration) |
-| ai-agent-service | `prompts.ts` (prompts versionnés, voir [prompt-book.md](prompt-book.md)), `mistral.ts` (API Mistral), `business.ts` (appels à business-service), `agent.ts` (enchaînement), `history.ts` |
+| ai-agent-service | `prompts.ts` (prompts versionnés, voir [prompt-book.md](prompt-book.md)), `nim.ts` (API NVIDIA NIM), `business.ts` (appels à business-service), `agent.ts` (enchaînement), `history.ts` |
 
 Chaque route handler est enveloppé par `route()` de `@hub/shared`, qui pose `X-Request-Id` sur la réponse et traduit les erreurs au format commun ([interconnexion.md](interconnexion.md), section 6).
 
@@ -108,7 +108,7 @@ pnpm env:init     # crée les .env depuis les .env.example et génère la clé J
 docker compose up --build
 ```
 
-`pnpm env:init` fonctionne à l'identique sous Linux, macOS et Windows. Il n'écrase jamais un `.env` existant. Pour interroger le vrai Mistral, renseigner ensuite `MISTRAL_API_KEY` dans `apps/ai-agent-service/.env`.
+`pnpm env:init` fonctionne à l'identique sous Linux, macOS et Windows. Il n'écrase jamais un `.env` existant. Pour interroger le vrai LLM, créer une clé gratuite sur https://build.nvidia.com (compte NVIDIA Developer) et la renseigner dans `NIM_API_KEY` de `apps/ai-agent-service/.env`.
 
 Ouvrir http://localhost et se connecter avec un compte de démonstration (`alice@hub.local`, `bruno@hub.local`, `chloe@hub.local`, `david@hub.local`, mot de passe `SEED_PASSWORD` de `apps/auth-service/.env`).
 
@@ -137,7 +137,8 @@ Le front (port 3000) appelle alors la gateway (port 80) : c'est une autre origin
 - `failed to connect to the docker API` : Docker Desktop n'est pas démarré.
 - `env file ... not found` : lancer `pnpm env:init`.
 - auth-service redémarre en boucle avec `JWT_PRIVATE_KEY n'est pas défini` : lancer `pnpm env:init`.
-- L'agent répond « Service d'IA indisponible » : `MISTRAL_API_KEY` absente ou invalide ; `docker compose logs ai-agent-service` donne le statut renvoyé par Mistral.
+- L'agent répond « Service d'IA indisponible » : `NIM_API_KEY` absente ou invalide (401), modèle introuvable (404 : vérifier `NIM_MODEL` sur build.nvidia.com) ou limite de la clé atteinte (429) ; `docker compose logs ai-agent-service` donne le statut renvoyé par NIM.
+- `.env` d'ai-agent-service créé avant le passage à NIM : il contient encore `MISTRAL_*` ; y ajouter `NIM_API_KEY`, `NIM_MODEL` et `NIM_BASE_URL` (voir `.env.example`).
 - `docker compose logs gateway` : requêtes reçues par Traefik.
 - Repartir de zéro : `docker compose down -v` (supprime conteneurs et données des bases), puis `docker compose up --build`.
 
@@ -146,9 +147,9 @@ Le front (port 3000) appelle alors la gateway (port 80) : c'est une autre origin
 | Commande | Contenu | Prérequis |
 | --- | --- | --- |
 | `pnpm typecheck` | Types de tous les paquets | — |
-| `pnpm test` | Tests unitaires (vitest) : vérification des JWT (`alg: none`, HS256, `iss`, `aud`, expiration), format d'erreur, clés et rotation, recherche, prompts (échappement, analyse de la sortie), client Mistral (erreurs, délai), cohérence Prompt Book / code | — |
+| `pnpm test` | Tests unitaires (vitest) : vérification des JWT (`alg: none`, HS256, `iss`, `aud`, expiration), format d'erreur, clés et rotation, recherche, prompts (échappement, analyse de la sortie), client NIM (erreurs, délai, raisonnement `<think>`), cohérence Prompt Book / code | — |
 | `TEST_DATABASE_URL=... pnpm --filter @hub/business-service test` | Règle de visibilité et recherche sur une vraie base PostgreSQL | Une base **jetable** : le test vide son schéma |
-| `pnpm test:e2e` | 26 vérifications à travers la gateway : routes internes, jeton forgé, en-têtes forgés, filtrage par rôle, CRUD des règles, agent (données envoyées au LLM, panne de Mistral, historique), CORS, rate limiting, refresh token et déconnexion | La pile lancée avec le faux Mistral (ci-dessous) |
+| `pnpm test:e2e` | 26 vérifications à travers la gateway : routes internes, jeton forgé, en-têtes forgés, filtrage par rôle, CRUD des règles, agent (données envoyées au LLM, panne du LLM, historique), CORS, rate limiting, refresh token et déconnexion | La pile lancée avec le faux NIM (ci-dessous) |
 
 Tests de bout en bout :
 
@@ -159,7 +160,7 @@ pnpm test:e2e
 docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml down -v
 ```
 
-`tests/e2e/docker-compose.e2e.yml` remplace l'API Mistral par un faux serveur (`tests/e2e/fake-mistral.mjs`) qui répond au même format et garde les requêtes reçues : les tests vérifient ainsi ce qui partirait chez Mistral (documents autorisés uniquement, aucun jeton). La qualité des réponses du vrai modèle se vérifie à part, avec une vraie clé ([prompt-book.md](prompt-book.md), section 7).
+`tests/e2e/docker-compose.e2e.yml` remplace l'API NVIDIA NIM par un faux serveur (`tests/e2e/fake-nim.mjs`) qui répond au même format et garde les requêtes reçues : les tests vérifient ainsi ce qui partirait chez NVIDIA (documents autorisés uniquement, aucun jeton). Il renvoie volontairement le JSON dans un bloc de code, comme le font certains modèles, pour vérifier que l'agent l'extrait. La qualité des réponses du vrai modèle se vérifie à part, avec une vraie clé ([prompt-book.md](prompt-book.md), section 7).
 
 Base jetable pour le test SQL :
 
@@ -184,9 +185,9 @@ Chaque service lit ses variables dans `apps/<service>/.env`, créé depuis `.env
 | business-service | `AUTH_JWKS_URL` | Clé publique d'auth-service (surchargée par `docker-compose.yml`) |
 | ai-agent-service | `DATABASE_URL` | Connexion à `agent_db` |
 | ai-agent-service | `AUTH_JWKS_URL`, `BUSINESS_SERVICE_URL` | Adresses d'auth-service et de business-service (surchargées par `docker-compose.yml`) |
-| ai-agent-service | `MISTRAL_API_KEY` | **Secret.** Clé de l'API Mistral |
-| ai-agent-service | `MISTRAL_MODEL` | Modèle, `mistral-small-latest` par défaut |
-| ai-agent-service | `MISTRAL_BASE_URL` | URL de l'API, `https://api.mistral.ai` par défaut (faux serveur dans les tests e2e) |
+| ai-agent-service | `NIM_API_KEY` | **Secret.** Clé de l'API NVIDIA NIM (`nvapi-…`) |
+| ai-agent-service | `NIM_MODEL` | Modèle du catalogue, `mistralai/mistral-nemotron` par défaut |
+| ai-agent-service | `NIM_BASE_URL` | URL de l'API, `https://integrate.api.nvidia.com/v1` par défaut (faux serveur dans les tests e2e) |
 | web | `NEXT_PUBLIC_GATEWAY_URL` | Seulement en `pnpm dev` : adresse de la gateway (vide en production, même origine) |
 
 ## Conventions

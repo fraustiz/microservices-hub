@@ -48,6 +48,14 @@ describe("parseAskOutput", () => {
     });
   });
 
+  it("accepte un objet JSON entouré d'un bloc de code ou de texte", () => {
+    const out = 'Voici :\n```json\n{"answer": "Deux jours par semaine [D2].", "sources": ["D2"]}\n```';
+    expect(parseAskOutput(out, docs)).toEqual({
+      answer: "Deux jours par semaine [D2].",
+      sources: [{ ref: "D2", id: "id-teletravail", title: "Charte de télétravail" }],
+    });
+  });
+
   it("JSON invalide : le texte devient la réponse, les sources viennent des citations", () => {
     const result = parseAskOutput("Deux jours par semaine [D2].", docs);
     expect(result.answer).toBe("Deux jours par semaine [D2].");

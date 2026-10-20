@@ -131,7 +131,7 @@ sequenceDiagram
   participant G as Gateway
   participant I as ai-agent-service
   participant S as business-service
-  participant M as API Mistral
+  participant M as API NVIDIA NIM
   B->>G: POST /agent/ask (cookie)
   G->>I: après ForwardAuth
   I->>I: requireAuth
@@ -142,7 +142,7 @@ sequenceDiagram
   I-->>B: réponse + sources
 ```
 
-L'agent ne détient aucun droit propre sur les données : ce que le LLM reçoit est exactement ce que l'utilisateur a le droit de lire. Les documents sont placés dans une balise `<documents>`, échappés, et les instructions restent dans le message system, pour limiter l'injection de prompt. La clé Mistral n'existe que dans ai-agent-service, seul service ayant un accès Internet. Détail des prompts et de leurs garde-fous : [prompt-book.md](prompt-book.md).
+L'agent ne détient aucun droit propre sur les données : ce que le LLM reçoit est exactement ce que l'utilisateur a le droit de lire. Les documents sont placés dans une balise `<documents>`, échappés, et les instructions restent dans le message system, pour limiter l'injection de prompt. La clé NIM n'existe que dans ai-agent-service, seul service ayant un accès Internet. Détail des prompts et de leurs garde-fous : [prompt-book.md](prompt-book.md).
 
 ## Menaces traitées
 

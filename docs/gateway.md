@@ -87,7 +87,7 @@ Traefik applique un seau à jetons : `burst` requêtes d'un coup, puis `average`
 | Limiteur | Routes | Limite | Compté par | Menace |
 | --- | --- | --- | --- | --- |
 | `rate-login` | `POST /auth/login` | 5/min, rafale de 5 | Adresse IP du client | Force brute sur les mots de passe |
-| `rate-agent` | `/agent/**` | 10/min, rafale de 10 | Utilisateur (`X-User-Id`) | Coût et quota de l'API Mistral, abus d'un compte |
+| `rate-agent` | `/agent/**` | 10/min, rafale de 10 | Utilisateur (`X-User-Id`) | Quota de l'API NVIDIA NIM (environ 40 req/min par clé, partagé par tous les utilisateurs), abus d'un compte |
 
 - L'agent est limité **par utilisateur**, pas par IP : dans une entreprise, des centaines de salariés partagent la même IP publique. `X-User-Id` ne peut pas être forgé : `strip-identity` retire celui du client, puis `jwt-auth` pose celui du jeton vérifié.
 - Au-delà de la limite, la gateway répond `429` au format d'erreur commun, avec `Retry-After: 60` : `{ "error": { "code": "RATE_LIMITED", "message": "Trop de requêtes : réessayez dans une minute", "requestId": "..." } }`. Le corps est servi par le front (`apps/web/app/errors/429/route.ts`) via le middleware `errors` de Traefik.

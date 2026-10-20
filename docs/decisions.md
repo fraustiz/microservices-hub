@@ -87,6 +87,7 @@ Chaque choix d'architecture ou de sécurité, avec les options écartées. Les n
 
 ## D15 — Mistral `mistral-small-latest`, sortie JSON et références vérifiées (2026-10-20)
 
+- **Statut** : fournisseur et mode JSON remplacés par [D20](#d20--modèle-mistral-servi-par-nvidia-nim-sans-mode-json-imposé-2026-10-20). Les références `Dn` vérifiées et l'absence d'appel sans document restent en vigueur.
 - **Décision** : modèle `mistral-small-latest` (configurable par `MISTRAL_MODEL`), température 0,1, mode JSON. Les documents sont numérotés `D1`…`Dn` dans le prompt ; le code fait la correspondance avec les vrais documents et écarte toute référence inconnue. Sans document autorisé correspondant, aucun appel au LLM. Détails dans [prompt-book.md](prompt-book.md).
 - **Raison** : un petit modèle suffit pour reformuler quelques documents courts, avec une latence et un coût faibles. Les sources affichées à l'utilisateur ne dépendent jamais de la seule parole du modèle.
 - **Écarté** : demander au modèle de recopier les UUID (erreurs de recopie) ; laisser le LLM filtrer les documents selon le rôle (le filtrage reste dans business-service, avant le LLM) ; OpenAI (le sujet laisse le choix, et Mistral, fournisseur européen, était déjà retenu dans l'architecture de la semaine 1).
@@ -105,6 +106,7 @@ Chaque choix d'architecture ou de sécurité, avec les options écartées. Les n
 
 ## D18 — Intégration du LLM validée par un faux serveur Mistral (2026-10-20)
 
+- **Statut** : toujours en vigueur ; depuis [D20](#d20--modèle-mistral-servi-par-nvidia-nim-sans-mode-json-imposé-2026-10-20), le faux serveur imite NVIDIA NIM (`tests/e2e/fake-nim.mjs`).
 - **Décision** : les tests de bout en bout remplacent l'API Mistral par un faux serveur (`tests/e2e/fake-mistral.mjs`) qui répond au même format et garde les requêtes reçues. La qualité des réponses du vrai modèle se juge à part, avec une vraie clé, sur la grille du Prompt Book.
 - **Raison** : on vérifie de façon reproductible, sans clé ni coût, tout ce qui relève du code : données envoyées (documents autorisés seulement, aucun jeton), paramètres, traduction des pannes. Le faux serveur passe par le même chemin réseau (`egress`) et le même client HTTP que Mistral.
 - **Écarté** : un mode « mock » dans le code de l'agent (chemin de code qui n'existe qu'en test, risque de l'activer en production) ; des tests automatiques contre le vrai Mistral (réponses non déterministes, coût, clé nécessaire en CI).
@@ -114,3 +116,10 @@ Chaque choix d'architecture ou de sécurité, avec les options écartées. Les n
 - **Décision** : `jose`, `zod`, `postgres`, `bcryptjs` et `vitest` sont épinglés à une version exacte, publiée depuis au moins deux semaines.
 - **Raison** : une version compromise d'un paquet npm est en général détectée et retirée en quelques jours. Pour des bibliothèques de sécurité (JWT, hachage), on ne prend pas une version sortie la veille.
 - **Écarté** : les plages `^` sur ces paquets (une version publiée ce matin peut entrer au prochain `pnpm install` sans relecture). `bcryptjs` (JavaScript pur) plutôt que `bcrypt` (module natif à compiler dans l'image Alpine).
+
+## D20 — Modèle Mistral servi par NVIDIA NIM, sans mode JSON imposé (2026-10-20)
+
+- **Décision** : ai-agent-service appelle l'API NVIDIA NIM (`https://integrate.api.nvidia.com/v1/chat/completions`, format OpenAI) avec le modèle `mistralai/mistral-nemotron`. Variables `NIM_API_KEY`, `NIM_MODEL`, `NIM_BASE_URL` à la place de `MISTRAL_*`. Aucun mode JSON n'est envoyé à l'API : le format est demandé par le prompt et le code extrait l'objet JSON de la réponse. Prompts passés en version `1.1.0` ([prompt-book.md](prompt-book.md)).
+- **Raison** : le plan gratuit de la console Mistral n'active plus les clés API (seules les formules payantes y donnent accès, constaté le 2026-10-20), alors que l'API NIM est gratuite pour le développement avec un compte NVIDIA Developer. Le modèle reste un modèle Mistral, ce qui garde l'esprit du sujet (« OpenAI ou Mistral »). Le format OpenAI permet de changer de modèle, ou de revenir à un fournisseur compatible, par simple configuration. Le mode JSON de NIM (`response_format`, `guided_json`) varie selon les modèles et les versions : ne pas en dépendre évite des erreurs 400 au premier changement de modèle.
+- **Contreparties** : offre gratuite réservée au développement et aux tests (une production demande une licence NVIDIA AI Enterprise ou un autre fournisseur), limite d'environ 40 requêtes par minute par clé, partagée par tous les utilisateurs de la plateforme. L'identifiant du modèle peut changer avec le catalogue : le vérifier sur build.nvidia.com en cas d'erreur 404.
+- **Écarté** : l'API Mistral en paiement à l'usage (payante, alors qu'une offre gratuite suffit pour le projet) ; un modèle non Mistral du catalogue (`meta/llama-…`), qui s'éloignerait du sujet ; `guided_json` (syntaxe instable d'une version de NIM à l'autre).

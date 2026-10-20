@@ -1,7 +1,7 @@
 import type { AuthUser } from "@hub/shared";
 import { getDocument, searchDocuments } from "./business";
 import { saveExchange } from "./history";
-import { chat } from "./mistral";
+import { chat } from "./nim";
 import {
   ASK_PROMPT,
   buildAskMessages,
@@ -13,7 +13,7 @@ import {
   type Source,
 } from "./prompts";
 
-/** Question → documents autorisés (F5) → Mistral (F6) → réponse et sources vérifiées. */
+/** Question → documents autorisés (F5) → LLM via NVIDIA NIM (F6) → réponse et sources vérifiées. */
 export async function ask(user: AuthUser, question: string, requestId: string) {
   const started = Date.now();
   const documents = await searchDocuments(user, question, requestId);

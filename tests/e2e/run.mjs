@@ -1,10 +1,10 @@
 // Tests de bout en bout, à travers la gateway, sur la pile Docker lancée avec docker-compose.e2e.yml.
 // Vérifie les contrats de docs/interconnexion.md, le contrôle d'accès, CORS, le rate limiting et
-// l'intégration du LLM (faux serveur Mistral : on contrôle ce qui serait parti chez le fournisseur).
-// Usage : pnpm test:e2e   (variables : GATEWAY_URL, FAKE_MISTRAL_URL, SEED_PASSWORD)
+// l'intégration du LLM (faux serveur NVIDIA NIM : on contrôle ce qui serait parti chez le fournisseur).
+// Usage : pnpm test:e2e   (variables : GATEWAY_URL, FAKE_NIM_URL, SEED_PASSWORD)
 
 const GATEWAY = process.env.GATEWAY_URL ?? "http://localhost";
-const FAKE_MISTRAL = process.env.FAKE_MISTRAL_URL ?? "http://127.0.0.1:18080";
+const FAKE_NIM = process.env.FAKE_NIM_URL ?? "http://127.0.0.1:18080";
 const PASSWORD = process.env.SEED_PASSWORD ?? "hub-demo-2026";
 const NOT_FOUND_ANSWER = "Je ne trouve pas cette information dans les documents auxquels vous avez accès.";
 
@@ -72,8 +72,8 @@ async function login(email, password = PASSWORD) {
   throw new Error(`connexion de ${email} toujours limitée`);
 }
 
-async function mistralRequests() {
-  return (await fetch(`${FAKE_MISTRAL}/__requests`)).json();
+async function llmRequests() {
+  return (await fetch(`${FAKE_NIM}/__requests`)).json();
 }
 
 async function waitFor(what, probe, timeoutMs = 180_000) {
@@ -176,9 +176,9 @@ await check("/api/rules : 403 pour un employé, CRUD pour un admin", async () =>
   equal((await alice.client.request(`/api/rules/${created.json.rule.id}`, { method: "DELETE" })).status, 204, "suppression");
 });
 
-console.log("\nai-agent-service : intégration du LLM (faux Mistral)");
+console.log("\nai-agent-service : intégration du LLM (faux NVIDIA NIM)");
 await waitFor("ai-agent-service", async () => (await bruno.client.request("/agent/history")).status === 200);
-const before = (await mistralRequests()).length;
+const before = (await llmRequests()).length;
 await check("POST /agent/ask : réponse, sources vérifiées, X-Request-Id propagé", async () => {
   const res = await chloe.client.request("/agent/ask", {
     method: "POST",
@@ -189,33 +189,34 @@ await check("POST /agent/ask : réponse, sources vérifiées, X-Request-Id propa
   equal(res.headers.get("x-request-id"), "e2e-ask-1", "X-Request-Id");
   equal(res.json.sources[0]?.title, "Politique de congés payés", "source");
   assert(res.json.answer.includes("[D1]"), "citation attendue dans la réponse");
+  assert(!res.json.answer.includes("```"), "objet JSON extrait du bloc de code");
 });
-await check("la requête envoyée à Mistral : prompt agent.ask, documents délimités, aucun jeton", async () => {
-  const sent = (await mistralRequests()).slice(before);
+await check("la requête envoyée à NIM : modèle, prompt agent.ask, documents délimités, aucun jeton", async () => {
+  const sent = (await llmRequests()).slice(before);
   equal(sent.length, 1, "un seul appel au LLM");
   const { authorization, body } = sent[0];
-  equal(authorization, "Bearer cle-factice-e2e", "clé API Mistral");
-  equal([body.temperature, body.max_tokens, body.response_format], [0.1, 600, { type: "json_object" }], "paramètres");
+  equal(authorization, "Bearer nvapi-cle-factice-e2e", "clé API NIM");
+  equal([body.model, body.temperature, body.max_tokens, body.stream], ["mistralai/mistral-nemotron", 0.1, 600, false], "paramètres");
   equal(body.messages.map((m) => m.role), ["system", "user"], "rôles");
   assert(body.messages[0].content.startsWith("Tu es l'assistant documentaire"), "prompt system agent.ask");
   assert(/^<documents>\n<document ref="D1"/.test(body.messages[1].content), "documents délimités");
   const payload = JSON.stringify(body);
-  assert(!payload.includes(chloe.client.cookies.get("access_token").value), "le JWT ne part jamais chez Mistral");
+  assert(!payload.includes(chloe.client.cookies.get("access_token").value), "le JWT ne part jamais chez le fournisseur");
   assert(!payload.includes("chloe@hub.local"), "aucun identifiant d'utilisateur");
 });
 await check("le LLM ne reçoit que les documents autorisés pour l'utilisateur", async () => {
-  const start = (await mistralRequests()).length;
+  const start = (await llmRequests()).length;
   await chloe.client.request("/agent/ask", { method: "POST", body: { question: "Quelle est la grille salariale des managers ?" } });
-  const payload = JSON.stringify((await mistralRequests()).slice(start));
+  const payload = JSON.stringify((await llmRequests()).slice(start));
   assert(!payload.includes("Grille salariale 2026") && !payload.includes("52 000"), "document confidentiel envoyé au LLM");
 });
 await check("aucun document pertinent : réponse fixe, sans appel au LLM", async () => {
-  const start = (await mistralRequests()).length;
+  const start = (await llmRequests()).length;
   const res = await chloe.client.request("/agent/ask", { method: "POST", body: { question: "xylophone zeppelin" } });
   equal([res.json.answer, res.json.sources], [NOT_FOUND_ANSWER, []], "réponse");
-  equal((await mistralRequests()).length, start, "appels au LLM");
+  equal((await llmRequests()).length, start, "appels au LLM");
 });
-await check("Mistral en panne : 502 UPSTREAM_ERROR « Service d'IA indisponible »", async () => {
+await check("NIM en panne : 502 UPSTREAM_ERROR « Service d'IA indisponible »", async () => {
   const res = await chloe.client.request("/agent/ask", { method: "POST", body: { question: "congés PANNE" } });
   equal([res.status, res.json.error.code, res.json.error.message], [502, "UPSTREAM_ERROR", "Service d'IA indisponible"], "erreur");
 });

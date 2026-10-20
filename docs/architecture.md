@@ -33,7 +33,7 @@ flowchart TB
   end
 
   subgraph ext ["Internet (sortant)"]
-    M[(API Mistral)]
+    M[(API NVIDIA NIM)]
   end
 
   U -->|HTTP| GW
@@ -65,7 +65,7 @@ Lecture :
 | `web` (Next.js) | Interface utilisateur. N'appelle que la gateway (même origine) | `/` | — |
 | `auth-service` | Identifiants, émission des JWT RS256 et des refresh tokens, JWKS, vérification pour la gateway | `/auth/**` | `auth_db` |
 | `business-service` | Documents, règles d'accès, recherche plein texte, filtrage par rôle et département | `/api/**` | `business_db` |
-| `ai-agent-service` | Prompts backend ([Prompt Book](prompt-book.md)), appel du LLM (Mistral), historique des échanges | `/agent/**` | `agent_db` |
+| `ai-agent-service` | Prompts backend ([Prompt Book](prompt-book.md)), appel du LLM (modèle Mistral via NVIDIA NIM), historique des échanges | `/agent/**` | `agent_db` |
 
 Les trois services sont des applications Next.js en mode API seul (route handlers, aucune page). Le code commun (contrôle d'accès, format d'erreur, configuration) est dans `packages/shared`, qui ne contient ni données ni connexion à une base.
 
@@ -77,7 +77,7 @@ Seule la gateway publie un port. Chaque base n'est joignable que par son service
 | --- | --- | --- | --- |
 | `public` | gateway, web | oui | Gateway ↔ front |
 | `internal` | gateway, auth, business, agent | **non** | Gateway ↔ services, appels entre services |
-| `egress` | ai-agent-service | oui | Seul accès sortant, vers l'API Mistral |
+| `egress` | ai-agent-service | oui | Seul accès sortant, vers l'API NVIDIA NIM |
 | `auth-db-net` | auth-service, auth_db | non | Base privée d'auth |
 | `business-db-net` | business-service, business_db | non | Base privée métier |
 | `agent-db-net` | ai-agent-service, agent_db | non | Base privée agent |
@@ -109,4 +109,4 @@ Contrats d'API détaillés : [interconnexion.md](interconnexion.md).
 | JWT RS256 (`jose`) | Vérification par clé publique : seul auth-service peut signer |
 | zod | Validation de toutes les entrées, messages d'erreur en français |
 | postgres.js | SQL paramétré, migrations au démarrage, sans ORM ([D16](decisions.md)) |
-| Mistral (`mistral-small-latest`) | Brique d'IA générative externe, appelée uniquement depuis le backend ([D15](decisions.md)) |
+| NVIDIA NIM (`mistralai/mistral-nemotron`) | Brique d'IA générative externe, API au format OpenAI, appelée uniquement depuis le backend ([D20](decisions.md)) |

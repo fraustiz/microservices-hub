@@ -1,5 +1,5 @@
-// Faux serveur de l'API Mistral (POST /v1/chat/completions), sans dépendance.
-// Répond comme Mistral et garde les requêtes reçues (GET /__requests) pour que les tests vérifient
+// Faux serveur de l'API NVIDIA NIM (POST /v1/chat/completions, format OpenAI), sans dépendance.
+// Répond comme NIM et garde les requêtes reçues (GET /__requests) pour que les tests vérifient
 // ce qui serait parti chez le fournisseur : documents autorisés uniquement, aucun jeton.
 import { createServer } from "node:http";
 
@@ -10,7 +10,7 @@ function completion(content) {
     id: `fake-${requests.length}`,
     object: "chat.completion",
     created: Math.floor(Date.now() / 1000),
-    model: "fake-mistral-small",
+    model: "mistralai/mistral-nemotron",
     choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
     usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
   };
@@ -24,7 +24,9 @@ function reply(body) {
     return `- Résumé factice de « ${docs[0]?.title} ».\n- Deuxième point.\n- Troisième point.`;
   }
   const first = docs[0];
-  return JSON.stringify({ answer: `D'après « ${first.title} », voici la réponse [${first.ref}].`, sources: [first.ref] });
+  // Sans mode JSON côté API, un modèle entoure parfois l'objet d'un bloc de code : l'agent doit l'extraire.
+  const json = JSON.stringify({ answer: `D'après « ${first.title} », voici la réponse [${first.ref}].`, sources: [first.ref] });
+  return "```json\n" + json + "\n```";
 }
 
 createServer((req, res) => {
@@ -50,4 +52,4 @@ createServer((req, res) => {
       res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(completion(reply(body))));
     }
   });
-}).listen(8080, () => console.log("faux Mistral sur :8080"));
+}).listen(8080, () => console.log("faux NIM sur :8080"));

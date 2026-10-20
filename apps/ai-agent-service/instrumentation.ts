@@ -5,7 +5,7 @@ export async function register() {
   const { migrate } = await import("./lib/db");
   await migrate();
   log("info", "ai-agent-service prêt", {
-    model: process.env.MISTRAL_MODEL || "mistral-small-latest",
-    mistralKey: Boolean(process.env.MISTRAL_API_KEY),
+    model: process.env.NIM_MODEL || "mistralai/mistral-nemotron",
+    nimKey: Boolean(process.env.NIM_API_KEY),
   });
 }

@@ -1,18 +1,19 @@
-# Surcharge pour les tests de bout en bout : l'API Mistral est remplacée par un faux serveur local,
-# pour valider toute la chaîne (gateway → agent → métier → LLM) sans clé ni coût. Voir docs/developpement.md.
+# Surcharge pour les tests de bout en bout : l'API NVIDIA NIM est remplacée par un faux serveur local,
+# pour valider toute la chaîne (gateway → agent → métier → LLM) sans clé ni quota. Voir docs/developpement.md.
 #   docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml up -d --build
 #   pnpm test:e2e
 services:
-  fake-mistral:
+  fake-nim:
     image: node:22-alpine
-    command: ["node", "/fake/fake-mistral.mjs"]
-    volumes: ["./tests/e2e/fake-mistral.mjs:/fake/fake-mistral.mjs:ro"]
+    command: ["node", "/fake/fake-nim.mjs"]
+    volumes: ["./tests/e2e/fake-nim.mjs:/fake/fake-nim.mjs:ro"]
     # Publié sur 127.0.0.1 uniquement, pour que le script de test lise les requêtes reçues.
     ports: ["127.0.0.1:18080:8080"]
     networks: [egress]
 
   ai-agent-service:
     environment:
-      MISTRAL_BASE_URL: http://fake-mistral:8080
-      MISTRAL_API_KEY: cle-factice-e2e
-    depends_on: { fake-mistral: { condition: service_started } }
+      NIM_BASE_URL: http://fake-nim:8080/v1
+      NIM_API_KEY: nvapi-cle-factice-e2e
+      NIM_MODEL: mistralai/mistral-nemotron
+    depends_on: { fake-nim: { condition: service_started } }
