@@ -10,7 +10,7 @@ navigateur → Traefik (gateway, seul port exposé)
                └─ /         → web (Next.js)
 ```
 
-**Documentation complète : [docs/README.md](docs/README.md)** (architecture, interconnexion, sécurité, gateway, développement, décisions).
+**Documentation complète : [docs/README.md](docs/README.md)** (architecture, interconnexion, sécurité, gateway, développement, [Prompt Book](docs/prompt-book.md), décisions).
 
 ## Démarrage
 
@@ -19,26 +19,31 @@ Prérequis : Node 22, pnpm (`corepack enable`), Docker.
 ```bash
 pnpm install
 pnpm hooks                                    # active le hook Git de .githooks
-for s in auth-service business-service ai-agent-service; do cp apps/$s/.env.example apps/$s/.env; done
+pnpm env:init                                 # crée les .env et la clé de signature JWT
 docker compose up --build                     # puis http://localhost
 ```
 
-Sous Windows (PowerShell), la copie des `.env` s'écrit :
+Pour que l'agent IA réponde, renseigner `MISTRAL_API_KEY` dans `apps/ai-agent-service/.env` (sans clé, il répond « Service d'IA indisponible »).
 
-```powershell
-foreach ($s in "auth-service", "business-service", "ai-agent-service") { Copy-Item "apps/$s/.env.example" "apps/$s/.env" }
+`docker compose ps` doit montrer les 8 conteneurs démarrés, et http://localhost afficher la page de connexion. Comptes de démonstration : `alice@hub.local` (admin), `bruno@hub.local` (manager RH), `chloe@hub.local` (employée RH), `david@hub.local` (employé tech), mot de passe `hub-demo-2026`.
+
+## Tests
+
+```bash
+pnpm typecheck && pnpm test                   # types et tests unitaires
+docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml up -d --build
+pnpm test:e2e                                 # bout en bout via la gateway, avec un faux serveur Mistral
 ```
-
-`docker compose ps` doit montrer les 8 conteneurs démarrés, et http://localhost afficher la page d'accueil.
 
 ## Structure
 
 | Dossier | Contenu |
 | --- | --- |
 | `apps/web` | Front Next.js |
-| `apps/auth-service` | Next.js API seul (auth, JWT) |
-| `apps/business-service` | Next.js API seul (données, règles métier) |
-| `apps/ai-agent-service` | Next.js API seul (prompts, LLM) |
-| `packages/shared` | Code partagé (jamais de données) |
-| `infra/traefik` | Configuration de la gateway |
-| `docs` | Documentation |
+| `apps/auth-service` | Next.js API seul (auth, JWT, refresh token) |
+| `apps/business-service` | Next.js API seul (documents, règles d'accès) |
+| `apps/ai-agent-service` | Next.js API seul (prompts, LLM Mistral, historique) |
+| `packages/shared` | Code partagé (jamais de données) : `requireAuth`, format d'erreur |
+| `infra/traefik` | Configuration de la gateway (routage, ForwardAuth, CORS, rate limiting) |
+| `tests/e2e` | Tests de bout en bout et faux serveur Mistral |
+| `docs` | Documentation, dont le Prompt Book |

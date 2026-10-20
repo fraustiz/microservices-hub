@@ -66,3 +66,51 @@ Chaque choix d'architecture ou de sécurité, avec les options écartées. Les n
 - **Décision** : les services communiquent en HTTP REST/JSON, de façon synchrone, en s'adressant par leur nom Docker. Chaque appel a un délai maximal (3 s entre services, 30 s vers le LLM) et n'est jamais relancé automatiquement. Détails dans [interconnexion.md](interconnexion.md).
 - **Raison** : chaque échange a besoin de sa réponse pour continuer (vérifier un jeton, lire les documents avant d'interroger le LLM). Le synchrone est le plus simple à suivre et à déboguer, surtout avec un `X-Request-Id` commun. Sans relance, un service surchargé ne reçoit pas en plus une vague de nouvelles tentatives.
 - **Écarté** : un bus de messages (RabbitMQ, Kafka), utile pour des traitements différés qui n'existent pas ici ; gRPC (contrats binaires plus stricts, mais moins lisibles et sans intérêt à ce volume) ; des relances automatiques (risque d'amplifier une panne).
+
+## D12 — Rate limiting à la gateway, par IP pour le login et par utilisateur pour l'agent (2026-10-20)
+
+- **Décision** : middlewares `rateLimit` de Traefik. Login : 5 requêtes/min par adresse IP. Agent : 10 requêtes/min par utilisateur, compté sur l'en-tête `X-User-Id` posé par ForwardAuth (le middleware est placé après `jwt-auth`). Les 429 prennent le format d'erreur commun grâce au middleware `errors`, qui sert le corps depuis le front.
+- **Raison** : une requête refusée n'atteint aucun service (même pas le calcul bcrypt du login). Compter par utilisateur pour l'agent évite de bloquer tous les salariés derrière la même IP d'entreprise, et `X-User-Id` ne peut pas être forgé (`strip-identity`, puis valeur issue du jeton vérifié). Détails dans [gateway.md](gateway.md).
+- **Écarté** : un limiteur en mémoire dans chaque service (faux dès qu'il y a plusieurs instances, et contraire à des services sans état) ; un quota stocké en base (un aller-retour SQL de plus par requête) ; Redis (infrastructure supplémentaire pour deux limites, à reconsidérer avec plusieurs gateways).
+
+## D13 — CORS en liste blanche à la gateway (2026-10-20)
+
+- **Décision** : un middleware `cors` unique, sur toutes les routes d'API, avec une liste d'origines explicite (`http://localhost:3000`, le front en `pnpm dev`), cookies autorisés, jamais `*`.
+- **Raison** : le front de production est sur la même origine que l'API et n'a pas besoin de CORS ; la liste ne contient que ce qui en a réellement besoin. Traefik répond lui-même aux requêtes préliminaires, avant `jwt-auth`.
+- **Écarté** : `*` (interdit avec les cookies, et ouvre l'API à tout site) ; refléter n'importe quelle origine (équivaut à `*`) ; gérer CORS dans chaque service (quatre configurations à garder identiques).
+
+## D14 — Refresh token opaque à usage unique, cookie limité à `/auth` (2026-10-20)
+
+- **Décision** : jeton aléatoire de 32 octets, empreinte SHA-256 en base, valable 7 jours, révoqué à chaque usage et remplacé. Un jeton rejoué révoque toutes les sessions de l'utilisateur. Cookie `Path=/auth`. `/auth/refresh` et `/auth/logout` sont routées sans `jwt-auth`.
+- **Raison** : un jeton d'accès de 15 minutes sans reconnexion toutes les 15 minutes. `Path=/auth` garde le refresh token hors de business-service et de l'agent, tout en permettant à `/auth/logout` de le lire pour le révoquer. Logout et refresh doivent marcher quand le jeton d'accès a expiré : c'est leur raison d'être.
+- **Écarté** : `Path=/auth/refresh`, prévu en semaine 1 (le logout ne recevrait jamais le cookie et ne pourrait pas le révoquer) ; un refresh token JWT (non révocable sans liste noire) ; un jeton d'accès longue durée (vol plus grave).
+
+## D15 — Mistral `mistral-small-latest`, sortie JSON et références vérifiées (2026-10-20)
+
+- **Décision** : modèle `mistral-small-latest` (configurable par `MISTRAL_MODEL`), température 0,1, mode JSON. Les documents sont numérotés `D1`…`Dn` dans le prompt ; le code fait la correspondance avec les vrais documents et écarte toute référence inconnue. Sans document autorisé correspondant, aucun appel au LLM. Détails dans [prompt-book.md](prompt-book.md).
+- **Raison** : un petit modèle suffit pour reformuler quelques documents courts, avec une latence et un coût faibles. Les sources affichées à l'utilisateur ne dépendent jamais de la seule parole du modèle.
+- **Écarté** : demander au modèle de recopier les UUID (erreurs de recopie) ; laisser le LLM filtrer les documents selon le rôle (le filtrage reste dans business-service, avant le LLM) ; OpenAI (le sujet laisse le choix, et Mistral, fournisseur européen, était déjà retenu dans l'architecture de la semaine 1).
+
+## D16 — postgres.js et migrations au démarrage (2026-10-20)
+
+- **Décision** : accès SQL avec postgres.js (requêtes en gabarits, paramètres liés). Migrations SQL dans `lib/db.ts` de chaque service, appliquées par `instrumentation.ts` au démarrage, sous verrou consultatif PostgreSQL.
+- **Raison** : quelques tables par service, des requêtes simples mais une règle de visibilité qui s'écrit naturellement en SQL. Pas de génération de code ni de moteur binaire dans l'image. Chaque service reste propriétaire de son schéma.
+- **Écarté** : Prisma (client généré, moteur binaire, image plus lourde) ; un outil de migration séparé lancé à la main (oubli possible au déploiement) ; un module de migration dans `@hub/shared` (couplerait les services par leur accès à la base).
+
+## D17 — Recherche plein texte PostgreSQL pour la V1 de l'agent (2026-10-20)
+
+- **Décision** : `to_tsvector('french', unaccent(...))`, titre pondéré plus fort que le contenu, termes de la question reliés par OU, classement `ts_rank`, 5 documents au plus.
+- **Raison** : aucun service ni modèle supplémentaire, et la recherche reste dans business-service, donc soumise au même filtre de droits que la liste des documents.
+- **Écarté pour la V1** : recherche sémantique (embeddings Mistral et pgvector), plus pertinente sur les synonymes mais qui demande de calculer et stocker un vecteur par document. Piste d'évolution notée dans le Prompt Book.
+
+## D18 — Intégration du LLM validée par un faux serveur Mistral (2026-10-20)
+
+- **Décision** : les tests de bout en bout remplacent l'API Mistral par un faux serveur (`tests/e2e/fake-mistral.mjs`) qui répond au même format et garde les requêtes reçues. La qualité des réponses du vrai modèle se juge à part, avec une vraie clé, sur la grille du Prompt Book.
+- **Raison** : on vérifie de façon reproductible, sans clé ni coût, tout ce qui relève du code : données envoyées (documents autorisés seulement, aucun jeton), paramètres, traduction des pannes. Le faux serveur passe par le même chemin réseau (`egress`) et le même client HTTP que Mistral.
+- **Écarté** : un mode « mock » dans le code de l'agent (chemin de code qui n'existe qu'en test, risque de l'activer en production) ; des tests automatiques contre le vrai Mistral (réponses non déterministes, coût, clé nécessaire en CI).
+
+## D19 — Nouvelles dépendances épinglées, publiées depuis au moins deux semaines (2026-10-20)
+
+- **Décision** : `jose`, `zod`, `postgres`, `bcryptjs` et `vitest` sont épinglés à une version exacte, publiée depuis au moins deux semaines.
+- **Raison** : une version compromise d'un paquet npm est en général détectée et retirée en quelques jours. Pour des bibliothèques de sécurité (JWT, hachage), on ne prend pas une version sortie la veille.
+- **Écarté** : les plages `^` sur ces paquets (une version publiée ce matin peut entrer au prochain `pnpm install` sans relecture). `bcryptjs` (JavaScript pur) plutôt que `bcrypt` (module natif à compiler dans l'image Alpine).
