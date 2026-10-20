@@ -14,7 +14,7 @@ Monorepo **pnpm** (espaces de travail) orchestré par **Turborepo**. Chaque doss
 ├── packages/
 │   └── shared/               Code partagé (@hub/shared)
 ├── infra/traefik/dynamic.yml Configuration de la gateway
-├── scripts/init-env.mjs      Création des .env et de la clé JWT (pnpm env:init)
+├── scripts/init-env.mjs      Création et mise à jour des .env, clé JWT (pnpm env:init)
 ├── tests/e2e/                Tests de bout en bout et faux serveur NVIDIA NIM
 ├── docs/                     Documentation (ce dossier)
 ├── docker-compose.yml        Toute la plateforme en local
@@ -104,11 +104,18 @@ Prérequis : Node 22, pnpm (`corepack enable`), Docker Desktop démarré.
 ```bash
 pnpm install
 pnpm hooks        # active .githooks (voir plus bas)
-pnpm env:init     # crée les .env depuis les .env.example et génère la clé JWT
+pnpm env:init     # crée ou complète les .env depuis les .env.example, génère la clé JWT
 docker compose up --build
 ```
 
-`pnpm env:init` fonctionne à l'identique sous Linux, macOS et Windows. Il n'écrase jamais un `.env` existant. Pour interroger le vrai LLM, créer une clé gratuite sur https://build.nvidia.com (compte NVIDIA Developer) et la renseigner dans `NIM_API_KEY` de `apps/ai-agent-service/.env`.
+`pnpm env:init` fonctionne à l'identique sous Linux, macOS et Windows, et peut être relancé à tout moment :
+
+- `.env` absent : il est créé depuis `.env.example` ;
+- `.env` existant : les variables ajoutées depuis à `.env.example` y sont ajoutées, avec leurs commentaires. Une valeur déjà présente n'est **jamais** modifiée ;
+- variables du `.env` que `.env.example` ne connaît plus (par exemple `MISTRAL_*` depuis [D20](decisions.md)) : elles sont signalées, à supprimer à la main ;
+- `JWT_PRIVATE_KEY` vide : la clé est générée.
+
+À relancer après chaque mise à jour du dépôt qui touche un `.env.example`. Pour interroger le vrai LLM, créer une clé gratuite sur https://build.nvidia.com (compte NVIDIA Developer) et la renseigner dans `NIM_API_KEY` de `apps/ai-agent-service/.env`.
 
 Ouvrir http://localhost et se connecter avec un compte de démonstration (`alice@hub.local`, `bruno@hub.local`, `chloe@hub.local`, `david@hub.local`, mot de passe `SEED_PASSWORD` de `apps/auth-service/.env`).
 
@@ -138,7 +145,7 @@ Le front (port 3000) appelle alors la gateway (port 80) : c'est une autre origin
 - `env file ... not found` : lancer `pnpm env:init`.
 - auth-service redémarre en boucle avec `JWT_PRIVATE_KEY n'est pas défini` : lancer `pnpm env:init`.
 - L'agent répond « Service d'IA indisponible » : `NIM_API_KEY` absente ou invalide (401), modèle introuvable (404 : vérifier `NIM_MODEL` sur build.nvidia.com) ou limite de la clé atteinte (429) ; `docker compose logs ai-agent-service` donne le statut renvoyé par NIM.
-- `.env` d'ai-agent-service créé avant le passage à NIM : il contient encore `MISTRAL_*` ; y ajouter `NIM_API_KEY`, `NIM_MODEL` et `NIM_BASE_URL` (voir `.env.example`).
+- `.env` créé avant une mise à jour (par exemple encore en `MISTRAL_*` dans ai-agent-service) : relancer `pnpm env:init`, qui ajoute les variables manquantes (`NIM_*`) et liste celles à supprimer.
 - `docker compose logs gateway` : requêtes reçues par Traefik.
 - Repartir de zéro : `docker compose down -v` (supprime conteneurs et données des bases), puis `docker compose up --build`.
 
@@ -172,7 +179,7 @@ docker rm -f pg-test
 
 ## Variables d'environnement
 
-Chaque service lit ses variables dans `apps/<service>/.env`, créé depuis `.env.example` par `pnpm env:init`. Les `.env` ne sont jamais commités. Tout ajout de variable doit être reporté dans le `.env.example` correspondant.
+Chaque service lit ses variables dans `apps/<service>/.env`, créé et tenu à jour depuis `.env.example` par `pnpm env:init`. Les `.env` ne sont jamais commités. Tout ajout de variable doit être reporté dans le `.env.example` correspondant.
 
 | Service | Variable | Rôle |
 | --- | --- | --- |

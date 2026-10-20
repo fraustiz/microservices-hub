@@ -19,7 +19,7 @@ Prérequis : Node 22, pnpm (`corepack enable`), Docker.
 ```bash
 pnpm install
 pnpm hooks                                    # active le hook Git de .githooks
-pnpm env:init                                 # crée les .env et la clé de signature JWT
+pnpm env:init                                 # crée ou complète les .env, génère la clé de signature JWT
 docker compose up --build                     # puis http://localhost
 ```
 
