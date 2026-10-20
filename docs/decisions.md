@@ -66,3 +66,83 @@ Chaque choix d'architecture ou de sécurité, avec les options écartées. Les n
 - **Décision** : les services communiquent en HTTP REST/JSON, de façon synchrone, en s'adressant par leur nom Docker. Chaque appel a un délai maximal (3 s entre services, 30 s vers le LLM) et n'est jamais relancé automatiquement. Détails dans [interconnexion.md](interconnexion.md).
 - **Raison** : chaque échange a besoin de sa réponse pour continuer (vérifier un jeton, lire les documents avant d'interroger le LLM). Le synchrone est le plus simple à suivre et à déboguer, surtout avec un `X-Request-Id` commun. Sans relance, un service surchargé ne reçoit pas en plus une vague de nouvelles tentatives.
 - **Écarté** : un bus de messages (RabbitMQ, Kafka), utile pour des traitements différés qui n'existent pas ici ; gRPC (contrats binaires plus stricts, mais moins lisibles et sans intérêt à ce volume) ; des relances automatiques (risque d'amplifier une panne).
+
+## D12 — Rate limiting à la gateway, par IP pour le login et par utilisateur pour l'agent (2026-10-20)
+
+- **Décision** : middlewares `rateLimit` de Traefik. Login : 5 requêtes/min par adresse IP. Agent : 10 requêtes/min par utilisateur, compté sur l'en-tête `X-User-Id` posé par ForwardAuth (le middleware est placé après `jwt-auth`). Les 429 prennent le format d'erreur commun grâce au middleware `errors`, qui sert le corps depuis le front.
+- **Raison** : une requête refusée n'atteint aucun service (même pas le calcul bcrypt du login). Compter par utilisateur pour l'agent évite de bloquer tous les salariés derrière la même IP d'entreprise, et `X-User-Id` ne peut pas être forgé (`strip-identity`, puis valeur issue du jeton vérifié). Détails dans [gateway.md](gateway.md).
+- **Écarté** : un limiteur en mémoire dans chaque service (faux dès qu'il y a plusieurs instances, et contraire à des services sans état) ; un quota stocké en base (un aller-retour SQL de plus par requête) ; Redis (infrastructure supplémentaire pour deux limites, à reconsidérer avec plusieurs gateways).
+
+## D13 — CORS en liste blanche à la gateway (2026-10-20)
+
+- **Décision** : un middleware `cors` unique, sur toutes les routes d'API, avec une liste d'origines explicite (`http://localhost:3000`, le front en `pnpm dev`), cookies autorisés, jamais `*`.
+- **Raison** : le front de production est sur la même origine que l'API et n'a pas besoin de CORS ; la liste ne contient que ce qui en a réellement besoin. Traefik répond lui-même aux requêtes préliminaires, avant `jwt-auth`.
+- **Écarté** : `*` (interdit avec les cookies, et ouvre l'API à tout site) ; refléter n'importe quelle origine (équivaut à `*`) ; gérer CORS dans chaque service (quatre configurations à garder identiques).
+
+## D14 — Refresh token opaque à usage unique, cookie limité à `/auth` (2026-10-20)
+
+- **Décision** : jeton aléatoire de 32 octets, empreinte SHA-256 en base, valable 7 jours, révoqué à chaque usage et remplacé. Un jeton rejoué révoque toutes les sessions de l'utilisateur. Cookie `Path=/auth`. `/auth/refresh` et `/auth/logout` sont routées sans `jwt-auth`.
+- **Raison** : un jeton d'accès de 15 minutes sans reconnexion toutes les 15 minutes. `Path=/auth` garde le refresh token hors de business-service et de l'agent, tout en permettant à `/auth/logout` de le lire pour le révoquer. Logout et refresh doivent marcher quand le jeton d'accès a expiré : c'est leur raison d'être.
+- **Écarté** : `Path=/auth/refresh`, prévu en semaine 1 (le logout ne recevrait jamais le cookie et ne pourrait pas le révoquer) ; un refresh token JWT (non révocable sans liste noire) ; un jeton d'accès longue durée (vol plus grave).
+
+## D15 — Mistral `mistral-small-latest`, sortie JSON et références vérifiées (2026-10-20)
+
+- **Statut** : fournisseur et mode JSON remplacés par [D20](#d20--modèle-mistral-servi-par-nvidia-nim-sans-mode-json-imposé-2026-10-20). Les références `Dn` vérifiées et l'absence d'appel sans document restent en vigueur.
+- **Décision** : modèle `mistral-small-latest` (configurable par `MISTRAL_MODEL`), température 0,1, mode JSON. Les documents sont numérotés `D1`…`Dn` dans le prompt ; le code fait la correspondance avec les vrais documents et écarte toute référence inconnue. Sans document autorisé correspondant, aucun appel au LLM. Détails dans [prompt-book.md](prompt-book.md).
+- **Raison** : un petit modèle suffit pour reformuler quelques documents courts, avec une latence et un coût faibles. Les sources affichées à l'utilisateur ne dépendent jamais de la seule parole du modèle.
+- **Écarté** : demander au modèle de recopier les UUID (erreurs de recopie) ; laisser le LLM filtrer les documents selon le rôle (le filtrage reste dans business-service, avant le LLM) ; OpenAI (le sujet laisse le choix, et Mistral, fournisseur européen, était déjà retenu dans l'architecture de la semaine 1).
+
+## D16 — postgres.js et migrations au démarrage (2026-10-20)
+
+- **Décision** : accès SQL avec postgres.js (requêtes en gabarits, paramètres liés). Migrations SQL dans `lib/db.ts` de chaque service, appliquées par `instrumentation.ts` au démarrage, sous verrou consultatif PostgreSQL.
+- **Raison** : quelques tables par service, des requêtes simples mais une règle de visibilité qui s'écrit naturellement en SQL. Pas de génération de code ni de moteur binaire dans l'image. Chaque service reste propriétaire de son schéma.
+- **Écarté** : Prisma (client généré, moteur binaire, image plus lourde) ; un outil de migration séparé lancé à la main (oubli possible au déploiement) ; un module de migration dans `@hub/shared` (couplerait les services par leur accès à la base).
+
+## D17 — Recherche plein texte PostgreSQL pour la V1 de l'agent (2026-10-20)
+
+- **Décision** : `to_tsvector('french', unaccent(...))`, titre pondéré plus fort que le contenu, termes de la question reliés par OU, classement `ts_rank`, 5 documents au plus.
+- **Raison** : aucun service ni modèle supplémentaire, et la recherche reste dans business-service, donc soumise au même filtre de droits que la liste des documents.
+- **Écarté pour la V1** : recherche sémantique (embeddings Mistral et pgvector), plus pertinente sur les synonymes mais qui demande de calculer et stocker un vecteur par document. Piste d'évolution notée dans le Prompt Book.
+
+## D18 — Intégration du LLM validée par un faux serveur Mistral (2026-10-20)
+
+- **Statut** : toujours en vigueur ; depuis [D20](#d20--modèle-mistral-servi-par-nvidia-nim-sans-mode-json-imposé-2026-10-20), le faux serveur imite NVIDIA NIM (`tests/e2e/fake-nim.mjs`).
+- **Décision** : les tests de bout en bout remplacent l'API Mistral par un faux serveur (`tests/e2e/fake-mistral.mjs`) qui répond au même format et garde les requêtes reçues. La qualité des réponses du vrai modèle se juge à part, avec une vraie clé, sur la grille du Prompt Book.
+- **Raison** : on vérifie de façon reproductible, sans clé ni coût, tout ce qui relève du code : données envoyées (documents autorisés seulement, aucun jeton), paramètres, traduction des pannes. Le faux serveur passe par le même chemin réseau (`egress`) et le même client HTTP que Mistral.
+- **Écarté** : un mode « mock » dans le code de l'agent (chemin de code qui n'existe qu'en test, risque de l'activer en production) ; des tests automatiques contre le vrai Mistral (réponses non déterministes, coût, clé nécessaire en CI).
+
+## D19 — Nouvelles dépendances épinglées, publiées depuis au moins deux semaines (2026-10-20)
+
+- **Décision** : `jose`, `zod`, `postgres`, `bcryptjs` et `vitest` sont épinglés à une version exacte, publiée depuis au moins deux semaines.
+- **Raison** : une version compromise d'un paquet npm est en général détectée et retirée en quelques jours. Pour des bibliothèques de sécurité (JWT, hachage), on ne prend pas une version sortie la veille.
+- **Écarté** : les plages `^` sur ces paquets (une version publiée ce matin peut entrer au prochain `pnpm install` sans relecture). `bcryptjs` (JavaScript pur) plutôt que `bcrypt` (module natif à compiler dans l'image Alpine).
+
+## D20 — Modèle Mistral servi par NVIDIA NIM, sans mode JSON imposé (2026-10-20)
+
+- **Statut** : en vigueur, sauf le choix d'un modèle Mistral : aucun n'est servi sur le compte du projet (404 ou 410, relevé du 2026-10-20 dans [prompt-book.md](prompt-book.md), section 2). Modèle remplacé par [D21](#d21--nemotron-35-lightning-sans-raisonnement-2026-10-20).
+- **Décision** : ai-agent-service appelle l'API NVIDIA NIM (`https://integrate.api.nvidia.com/v1/chat/completions`, format OpenAI) avec le modèle `mistralai/mistral-nemotron`. Variables `NIM_API_KEY`, `NIM_MODEL`, `NIM_BASE_URL` à la place de `MISTRAL_*`. Aucun mode JSON n'est envoyé à l'API : le format est demandé par le prompt et le code extrait l'objet JSON de la réponse. Prompts passés en version `1.1.0` ([prompt-book.md](prompt-book.md)).
+- **Raison** : le plan gratuit de la console Mistral n'active plus les clés API (seules les formules payantes y donnent accès, constaté le 2026-10-20), alors que l'API NIM est gratuite pour le développement avec un compte NVIDIA Developer. Le modèle reste un modèle Mistral, ce qui garde l'esprit du sujet (« OpenAI ou Mistral »). Le format OpenAI permet de changer de modèle, ou de revenir à un fournisseur compatible, par simple configuration. Le mode JSON de NIM (`response_format`, `guided_json`) varie selon les modèles et les versions : ne pas en dépendre évite des erreurs 400 au premier changement de modèle.
+- **Contreparties** : offre gratuite réservée au développement et aux tests (une production demande une licence NVIDIA AI Enterprise ou un autre fournisseur), limite d'environ 40 requêtes par minute par clé, partagée par tous les utilisateurs de la plateforme. L'identifiant du modèle peut changer avec le catalogue : le vérifier sur build.nvidia.com en cas d'erreur 404.
+- **Écarté** : l'API Mistral en paiement à l'usage (payante, alors qu'une offre gratuite suffit pour le projet) ; un modèle non Mistral du catalogue (`meta/llama-…`), qui s'éloignerait du sujet ; `guided_json` (syntaxe instable d'une version de NIM à l'autre).
+
+## D21 — Nemotron 3.5 Lightning, sans raisonnement (2026-10-20)
+
+- **Statut** : le réglage du raisonnement reste en vigueur ; le modèle est remplacé par Nemotron 3.5 Super ([D22](#d22--nemotron-35-super-qui-cite-ses-sources-2026-10-20)).
+- **Décision** : modèle par défaut `nvidia/nemotron-3.5-lightning-30b-a3b`, avec `chat_template_kwargs: { "enable_thinking": false }` à chaque appel (paramètre `reasoning` de chaque prompt). Une réponse vide après retrait du raisonnement donne `502 UPSTREAM_ERROR`. Prompts passés en `1.2.0`, texte inchangé.
+- **Raison** : aucun modèle Mistral ni OpenAI n'est servi sur le compte NIM du projet (404 ou 410 ; `openai/gpt-oss-20b` ferme la connexion). Parmi les modèles servis, Lightning est le seul modèle d'instruction généraliste de taille raisonnable. Avec le raisonnement, il a mis 4,5 s et 571 jetons pour une réponse de 8 jetons, et une réponse plus longue serait coupée par `max_tokens`. Sans raisonnement : 0,6 s, 8 jetons, JSON correct. Mesures dans [prompt-book.md](prompt-book.md), section 2.
+- **Contreparties** : écart à la lettre du sujet (« OpenAI ou Mistral »), assumé faute de modèle servi ; calculs arrondis sans raisonnement (24,96 → 25), sans effet pour un agent qui reformule des documents (règle 1 du prompt).
+- **Écarté** : `nemotron-3-ultra-550b-a55b` (très gros, donc lent, pour reformuler quelques documents) ; `nemotron-3.5-super-vl-120b-a12b` et `nemotron-3-nano-omni-30b-a3b-reasoning` (multimodaux, le second raisonne toujours) ; garder le raisonnement avec un `max_tokens` de 2 000 (environ 70 fois plus de jetons et plusieurs secondes par réponse, pour un raisonnement en anglais inutile à une reformulation) ; `/no_think` dans le prompt (sans effet sur ce modèle : réponse coupée).
+
+## D22 — Nemotron 3.5 Super, qui cite ses sources (2026-10-20)
+
+- **Décision** : modèle par défaut `nvidia/nemotron-3.5-super-vl-120b-a12b`, toujours sans raisonnement. Prompts passés en `1.4.0`, texte inchangé.
+- **Raison** : l'évaluation n°2 a montré que Lightning n'écrivait aucune référence `[Dn]` dans ses réponses, malgré la règle 3. Sur les mêmes questions, Super met la bonne référence à la fin de chaque phrase, y compris sur une réponse qui couvre 4 documents (évaluation n°3 dans [prompt-book.md](prompt-book.md), section 7). Sa latence (0,9 à 9,1 s) reste loin sous le délai de 30 s. Le seul modèle texte de même taille, `nvidia/nemotron-3-super-120b-a12b`, répond 404 pour le compte. NVIDIA indique servir `private/nvidia/nemotron-3.5-super-120b-a12b` derrière l'alias `-vl-`.
+- **Contreparties** : 1,3 à 13 fois plus lent que Lightning ; il calcule encore un total quand on le lui demande (A15), ce qui relève d'une étape de vérification chaînée, pas du choix du modèle.
+- **Écarté** : rester sur Lightning (plus rapide, mais réponses invérifiables) ; `nemotron-3-ultra-550b-a55b` (encore plus gros, non nécessaire pour les références).
+
+## D23 — Chaîne de prompts : recherche, réponse, vérification (2026-10-20)
+
+- **Décision** : `POST /agent/ask` enchaîne trois prompts. `agent.search` transforme la question en mots-clés et synonymes pour la recherche ; `agent.ask` rédige la réponse ; `agent.verify` indique, phrase par phrase, le document qui l'appuie ou une correction. Le code garde une phrase seulement si le vérificateur la dit appuyée **et** si tous ses nombres figurent dans ce document ; il écrit lui-même les références `[Dn]`, retire le reste et garde la trace des phrases retirées ou corrigées (`exchanges.chain`). Détails dans [prompt-book.md](prompt-book.md), section 4.
+- **Raison** : trois évaluations avec le vrai modèle ont montré que les consignes d'un prompt unique ne suffisent pas : références absentes (Lightning), total calculé malgré l'interdiction (Lightning et Super). Une vérification séparée, plus un contrôle déterministe des nombres, ne dépendent pas de la bonne volonté du modèle qui rédige. La recherche par mots-clés corrige la limite connue de la recherche plein texte (synonymes). L'évaluation de la semaine 2 porte justement sur « l'efficacité du chaînage de prompts », et la semaine 4 demande une analyse des hallucinations : les phrases retirées en sont la matière.
+- **Contreparties** : trois appels au lieu d'un (latence et quota : une douzaine de questions par minute pour la clé gratuite) ; le contrôle des nombres refuse aussi une phrase juste qui écrit en chiffres ce que le document écrit en lettres.
+- **Écarté** : renforcer encore les consignes d'un prompt unique (déjà essayé en `1.3.0`, sans effet sur le calcul) ; une vérification par le code seul (il sait contrôler les nombres, pas attribuer une phrase au bon document) ; laisser passer la réponse non vérifiée quand le vérificateur échoue (on applique alors au moins le contrôle des nombres, et la trace l'indique).

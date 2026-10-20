@@ -1,11 +1,13 @@
 # Configuration complète de la gateway (provider fichier) : identique en local et en prod.
 # Explications : docs/gateway.md. Schéma de sécurité : docs/securite.md.
 #
-# Ordre des middlewares sur les routes protégées :
-#   strip-identity → security-headers → jwt-auth
+# Ordre des middlewares sur les routes d'API :
+#   strip-identity → security-headers → cors → [rate-limit-json → rate-login] → jwt-auth → [rate-agent]
 # - strip-identity en premier : aucun en-tête X-User-* du client n'atteint la suite ;
-# - jwt-auth en dernier : refuse toute requête sans jeton valide.
-# CORS et rate limiting : semaine 2.
+# - cors avant jwt-auth : Traefik répond lui-même aux requêtes préliminaires (OPTIONS, sans cookie) ;
+# - rate-limit-json avant les limiteurs : leurs 429 prennent le format d'erreur commun ;
+# - jwt-auth refuse toute requête sans jeton valide ;
+# - rate-agent après jwt-auth : il compte par utilisateur (X-User-Id posé par ForwardAuth).
 http:
   routers:
     web:
@@ -16,23 +18,29 @@ http:
 
     # auth-service : seules ces routes sont exposées (liste blanche). /auth/verify et
     # /.well-known/jwks.json restent internes : sans routeur, elles tombent sur le front (404).
-    auth-public:
+    auth-login:
       rule: Path(`/auth/login`)
       service: auth
-      middlewares: [strip-identity, security-headers]
-    auth-private:
-      rule: Path(`/auth/me`) || Path(`/auth/logout`)
+      middlewares: [strip-identity, security-headers, cors, rate-limit-json, rate-login]
+    # Publiques : elles servent justement quand le jeton d'accès a expiré. Le refresh token
+    # (cookie limité à Path=/auth) est vérifié par auth-service.
+    auth-session:
+      rule: Path(`/auth/refresh`) || Path(`/auth/logout`)
       service: auth
-      middlewares: [strip-identity, security-headers, jwt-auth]
+      middlewares: [strip-identity, security-headers, cors]
+    auth-private:
+      rule: Path(`/auth/me`)
+      service: auth
+      middlewares: [strip-identity, security-headers, cors, jwt-auth]
 
     business:
       rule: PathPrefix(`/api`)
       service: business
-      middlewares: [strip-identity, security-headers, jwt-auth]
+      middlewares: [strip-identity, security-headers, cors, jwt-auth]
     agent:
       rule: PathPrefix(`/agent`)
       service: agent
-      middlewares: [strip-identity, security-headers, jwt-auth]
+      middlewares: [strip-identity, security-headers, cors, rate-limit-json, jwt-auth, rate-agent]
 
   services:
     web:
@@ -57,15 +65,52 @@ http:
     # ForwardAuth : avant de transmettre la requête, Traefik appelle auth-service.
     # 2xx → requête transmise avec les en-têtes X-User-* renvoyés ; sinon la réponse
     # d'auth-service (401, format d'erreur commun) est renvoyée telle quelle au client.
-    # /auth/verify est implémenté en semaine 2 : d'ici là, toute route protégée est refusée.
     jwt-auth:
       forwardAuth:
         address: http://auth-service:3000/auth/verify
         authRequestHeaders: [Cookie, Authorization]
         authResponseHeaders: [X-User-Id, X-User-Role, X-User-Dept]
 
-    # TODO S2 : cors (liste blanche d'origines, jamais "*")
-    # TODO S2 : rate limiting (login 5 req/min, agent 10 req/min)
+    # CORS : liste blanche d'origines, jamais "*" (interdit avec les cookies). Une origine absente
+    # de la liste ne reçoit aucun en-tête Access-Control-* : le navigateur bloque la réponse.
+    # Le front de production est servi par la gateway (même origine) et n'a pas besoin de CORS.
+    # http://localhost:3000 : front lancé en `pnpm dev`, qui appelle la gateway sur http://localhost.
+    cors:
+      headers:
+        accessControlAllowOriginList: ["http://localhost:3000"]
+        accessControlAllowCredentials: true
+        accessControlAllowMethods: [GET, POST, PUT, DELETE]
+        accessControlAllowHeaders: [Content-Type, X-Request-Id]
+        accessControlExposeHeaders: [X-Request-Id, Retry-After]
+        accessControlMaxAge: 600
+        addVaryHeader: true
+
+    # Force brute sur le login : 5 requêtes par minute et par adresse IP.
+    # Derrière un autre reverse proxy (prod), configurer forwardedHeaders.trustedIPs sur l'entrypoint
+    # et ipStrategy.depth: 1, sinon toutes les requêtes partagent l'IP du proxy.
+    rate-login:
+      rateLimit:
+        average: 5
+        period: 1m
+        burst: 5
+
+    # Coût du LLM : 10 requêtes par minute et par utilisateur (et non par IP : plusieurs salariés
+    # peuvent partager l'IP de l'entreprise). X-User-Id est posé par jwt-auth, jamais par le client.
+    rate-agent:
+      rateLimit:
+        average: 10
+        period: 1m
+        burst: 10
+        sourceCriterion:
+          requestHeaderName: X-User-Id
+
+    # Le 429 de Traefik est du texte brut : il est remplacé par le format d'erreur commun,
+    # servi par le front (apps/web/app/errors/429/route.ts).
+    rate-limit-json:
+      errors:
+        status: ["429"]
+        service: web
+        query: /errors/429
 
     security-headers:
       headers:

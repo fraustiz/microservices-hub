@@ -1,0 +1,19 @@
+# Surcharge pour les tests de bout en bout : l'API NVIDIA NIM est remplacée par un faux serveur local,
+# pour valider toute la chaîne (gateway → agent → métier → LLM) sans clé ni quota. Voir docs/developpement.md.
+#   docker compose -f docker-compose.yml -f tests/e2e/docker-compose.e2e.yml up -d --build
+#   pnpm test:e2e
+services:
+  fake-nim:
+    image: node:22-alpine
+    command: ["node", "/fake/fake-nim.mjs"]
+    volumes: ["./tests/e2e/fake-nim.mjs:/fake/fake-nim.mjs:ro"]
+    # Publié sur 127.0.0.1 uniquement, pour que le script de test lise les requêtes reçues.
+    ports: ["127.0.0.1:18080:8080"]
+    networks: [egress]
+
+  ai-agent-service:
+    environment:
+      NIM_BASE_URL: http://fake-nim:8080/v1
+      NIM_API_KEY: cle-factice-e2e
+      NIM_MODEL: nvidia/nemotron-3.5-super-vl-120b-a12b
+    depends_on: { fake-nim: { condition: service_started } }

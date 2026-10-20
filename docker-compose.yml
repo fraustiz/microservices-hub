@@ -3,7 +3,7 @@
 # traefik.* ni accès au socket Docker, pour ne pas interférer avec un autre Traefik sur l'hôte.
 #   public     : gateway <-> front
 #   internal    : gateway <-> services, et services entre eux (pas d'accès Internet)
-#   egress      : sortie Internet, UNIQUEMENT pour ai-agent-service (API Mistral)
+#   egress      : sortie Internet, UNIQUEMENT pour ai-agent-service (API NVIDIA NIM)
 #   *-db-net    : chaque service <-> sa propre base, rien d'autre
 
 x-service: &service
@@ -44,6 +44,7 @@ services:
     env_file: apps/business-service/.env
     environment:
       DATABASE_URL: postgresql://business:business@business-db:5432/business_db
+      AUTH_JWKS_URL: http://auth-service:3000/.well-known/jwks.json
     depends_on: { business-db: { condition: service_healthy } }
     networks: [internal, business-db-net]
 
@@ -53,6 +54,8 @@ services:
     env_file: apps/ai-agent-service/.env
     environment:
       DATABASE_URL: postgresql://agent:agent@agent-db:5432/agent_db
+      AUTH_JWKS_URL: http://auth-service:3000/.well-known/jwks.json
+      BUSINESS_SERVICE_URL: http://business-service:3000
     depends_on: { agent-db: { condition: service_healthy } }
     networks: [internal, agent-db-net, egress]
 

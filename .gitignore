@@ -9,4 +9,5 @@ keys/
 
 # Outils locaux (hors livrable)
 CLAUDE.md
+AGENTS.md
 .claude/

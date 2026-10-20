@@ -2,7 +2,7 @@
 
 Comment les composants de la plateforme communiquent entre eux : protocole, qui a le droit d'appeler qui, contenu de chaque échange et comportement en cas de panne.
 
-Ce document est le contrat entre les services. En semaine 1, les réseaux et le routage qui rendent ces échanges possibles sont configurés (`docker-compose.yml`, `infra/traefik/dynamic.yml`) ; le code des routes est écrit en semaine 2. Voir aussi : contrôle d'accès dans [securite.md](securite.md), routage de la gateway dans [gateway.md](gateway.md).
+Ce document est le contrat entre les services. Les réseaux et le routage qui rendent ces échanges possibles sont configurés depuis la semaine 1 (`docker-compose.yml`, `infra/traefik/dynamic.yml`) ; le code des routes est écrit en semaine 2 et vérifié par les tests de bout en bout (`pnpm test:e2e`, voir [developpement.md](developpement.md)). Voir aussi : contrôle d'accès dans [securite.md](securite.md), routage de la gateway dans [gateway.md](gateway.md), prompts dans [prompt-book.md](prompt-book.md).
 
 ## 1. Principes
 
@@ -11,7 +11,7 @@ Ce document est le contrat entre les services. En semaine 1, les réseaux et le 
 | Style | REST, corps JSON (UTF-8), sur HTTP/1.1 | Simple, outillé, lisible dans les journaux |
 | Mode | Synchrone : chaque appel attend sa réponse | Chaque échange a besoin du résultat pour continuer (vérifier un jeton, lire des documents avant d'interroger le LLM). Aucun traitement différé à ce stade, donc pas de file de messages ([décision D11](decisions.md)). |
 | Adressage | Nom du service Docker et port 3000 : `http://business-service:3000` | Résolu par le DNS interne de Docker : pas d'adresse IP en dur, pas d'annuaire à maintenir |
-| Transport | HTTP dans les réseaux Docker internes, HTTPS vers l'API Mistral | Le trafic interne ne quitte pas l'hôte ; le seul échange qui sort sur Internet est chiffré |
+| Transport | HTTP dans les réseaux Docker internes, HTTPS vers l'API NVIDIA NIM | Le trafic interne ne quitte pas l'hôte ; le seul échange qui sort sur Internet est chiffré |
 | Identité | Le JWT de l'utilisateur accompagne chaque appel | Chaque service vérifie lui-même qui est à l'origine de la requête. Aucun service n'a de droits propres. |
 | Délais | 3 s entre services, 30 s vers le LLM | Une dépendance lente ne bloque pas toute la chaîne |
 | Corrélation | En-tête `X-Request-Id`, recopié d'appel en appel | Suivre une même requête dans les journaux de tous les services |
@@ -38,7 +38,7 @@ Numérotation reprise dans la suite du document. Les composants sont ceux du [sc
 | F3 | Gateway | Service cible (`/auth`, `/api`, `/agent`) ou web (`/`) | HTTP | `internal` (`public` pour web) | Cookie + `X-User-*` | géré par Traefik |
 | F4 | business-service, ai-agent-service | auth-service `GET /.well-known/jwks.json` | HTTP | `internal` | Aucune (clé publique) | 3 s |
 | F5 | ai-agent-service | business-service `GET /api/documents` | HTTP | `internal` | `Authorization: Bearer` (JWT de l'utilisateur) | 3 s |
-| F6 | ai-agent-service | API Mistral | HTTPS | `egress` | Clé API Mistral | 30 s |
+| F6 | ai-agent-service | API NVIDIA NIM | HTTPS | `egress` | Clé API NIM | 30 s |
 | F7 | Chaque service | Sa propre base | PostgreSQL (5432) | `<service>-db-net` | Identifiants de la base | 3 s (connexion) |
 | F8 | Docker | `/health` de chaque conteneur | HTTP | Local au conteneur | Aucune | 3 s |
 
@@ -117,27 +117,35 @@ X-Request-Id: 7f3c9a2e-...
 - business-service filtre selon le rôle et le département du jeton : l'agent reçoit exactement ce que l'utilisateur obtiendrait en appelant `/api/documents` lui-même.
 - Contrat de la route : [section 5](#get-apidocuments).
 
-### F6 : l'agent IA interroge Mistral
+### F6 : l'agent IA interroge le LLM (NVIDIA NIM)
 
 ```http
 POST /v1/chat/completions HTTP/1.1
-Host: api.mistral.ai
-Authorization: Bearer <MISTRAL_API_KEY>
+Host: integrate.api.nvidia.com
+Authorization: Bearer <NIM_API_KEY>
 Content-Type: application/json
 
 {
-  "model": "<modèle choisi en semaine 2>",
+  "model": "nvidia/nemotron-3.5-super-vl-120b-a12b",
   "messages": [
-    { "role": "system", "content": "<instructions>" },
-    { "role": "user", "content": "<question>\n<documents>...</documents>" }
-  ]
+    { "role": "system", "content": "<règles du prompt agent.ask>" },
+    { "role": "user", "content": "<documents>...</documents>\n\n<question>...</question>" }
+  ],
+  "temperature": 0.1,
+  "max_tokens": 600,
+  "stream": false,
+  "chat_template_kwargs": { "enable_thinking": false }
 }
 ```
 
+Format OpenAI : réponse `{ "model", "choices": [{ "message": { "content" } }], "usage" }`. Aucun mode JSON n'est imposé : le format de sortie est demandé par le prompt ([prompt-book.md](prompt-book.md), section 2).
+
 - C'est le seul échange qui sort de la plateforme, et ai-agent-service est le seul service connecté au réseau `egress`.
-- Ne part vers Mistral que la question et les documents reçus en F5 : jamais de jeton, d'identifiant ni de donnée d'un autre utilisateur.
-- La clé API n'existe que dans les variables d'environnement d'ai-agent-service.
-- Le contenu des prompts est documenté dans le Prompt Book (semaine 2).
+- Ne part vers NVIDIA que la question et les documents reçus en F5 : jamais de jeton, d'identifiant ni de donnée d'un autre utilisateur.
+- La clé API n'existe que dans les variables d'environnement d'ai-agent-service (`NIM_API_KEY`).
+- `POST /agent/ask` fait jusqu'à **trois** appels F6 enchaînés : `agent.search` (la question seule, pour obtenir des mots-clés), `agent.ask` (documents et question), `agent.verify` (documents et phrases de la réponse). Si aucun document autorisé ne correspond, seul le premier a lieu ; si la réponse est « Je ne trouve pas… », pas de vérification. `POST /agent/summarize` fait un seul appel.
+- Chaque appel a son propre délai maximal de 30 s.
+- Texte exact des prompts, paramètres et traitement de la réponse : [prompt-book.md](prompt-book.md).
 
 ### F7 : chaque service et sa base
 
@@ -161,20 +169,25 @@ sequenceDiagram
   participant A as auth-service
   participant I as ai-agent-service
   participant S as business-service
-  participant M as API Mistral
+  participant M as API NVIDIA NIM
   B->>G: F1 POST /agent/ask (cookie access_token)
   G->>A: F2 GET /auth/verify (Cookie)
   A-->>G: 200 + X-User-Id, X-User-Role, X-User-Dept
   G->>I: F3 POST /agent/ask + X-User-*
   I->>I: vérifie le JWT (clé publique en cache, F4 si besoin)
-  I->>S: F5 GET /api/documents + Bearer JWT + X-Request-Id
+  I->>M: F6 agent.search (question seule)
+  M-->>I: mots-clés
+  I->>S: F5 GET /api/documents?q=mots-clés + question, Bearer JWT, X-Request-Id
   Note over I,S: délai max 3 s
   S->>S: vérifie le JWT, filtre par rôle et département
   S-->>I: 200 documents autorisés
-  I->>M: F6 POST /v1/chat/completions (question + documents)
-  Note over I,M: délai max 30 s
-  M-->>I: réponse générée
-  I-->>G: 200 réponse + sources
+  I->>M: F6 agent.ask (question + documents)
+  M-->>I: réponse brute
+  I->>M: F6 agent.verify (documents + phrases)
+  Note over I,M: délai max 30 s par appel
+  M-->>I: avis phrase par phrase
+  I->>I: contrôle des nombres, références écrites par le code
+  I-->>G: 200 réponse vérifiée + sources
   G-->>B: 200 réponse + sources
 ```
 
@@ -186,16 +199,26 @@ Si le jeton est absent ou expiré, l'échange s'arrête à l'étape 3 : la gatew
 
 | Service | Route | Accès | Implémentation |
 | --- | --- | --- | --- |
-| auth | `POST /auth/login` | Public (5 req/min) | S2 |
-| auth | `POST /auth/logout` | Connecté | S2 |
-| auth | `GET /auth/me` | Connecté | S2 |
+| auth | `POST /auth/login` | Public (5 req/min par IP) | S2 |
 | auth | `POST /auth/refresh` | Refresh token | S2 |
+| auth | `POST /auth/logout` | Refresh token (fonctionne aussi après expiration du jeton d'accès) | S2 |
+| auth | `GET /auth/me` | Connecté | S2 |
 | business | `GET /api/documents` | Connecté, filtré par rôle et département | S2 |
-| business | `GET/POST/PUT /api/rules` | admin | S2 |
-| agent | `POST /agent/ask` | Connecté (10 req/min) | S2 |
+| business | `GET /api/documents/{id}` | Connecté, filtré par rôle et département | S2 |
+| business | `GET /api/rules`, `POST /api/rules` | admin | S2 |
+| business | `PUT /api/rules/{id}`, `DELETE /api/rules/{id}` | admin | S2 |
+| agent | `POST /agent/ask` | Connecté (10 req/min par utilisateur, toutes routes `/agent` confondues) | S2 |
 | agent | `POST /agent/summarize` | Connecté | S2 |
+| agent | `GET /agent/history` | Connecté | S2 |
 
-Les contrats de `/auth/refresh`, `/api/rules` et `/agent/summarize` seront précisés en semaine 2.
+Comptes de démonstration (créés au premier démarrage, mot de passe `SEED_PASSWORD` de `apps/auth-service/.env`, généré par `pnpm env:init`) :
+
+| Email | Rôle | Département | Documents visibles |
+| --- | --- | --- | --- |
+| `alice@hub.local` | admin | direction | 10 (tous) |
+| `bruno@hub.local` | manager | rh | 7 |
+| `chloe@hub.local` | employee | rh | 5 |
+| `david@hub.local` | employee | tech | 5 |
 
 ### `POST /auth/login`
 
@@ -205,13 +228,17 @@ Requête :
 { "email": "alice@hub.local", "password": "..." }
 ```
 
-Réponse 200, avec l'en-tête `Set-Cookie: access_token=<JWT>; HttpOnly; SameSite=Strict; Path=/; Max-Age=900` :
+Réponse 200, avec deux en-têtes `Set-Cookie` : `access_token=<JWT>; Path=/; Max-Age=900; HttpOnly; SameSite=Strict` et `refresh_token=<jeton opaque>; Path=/auth; Max-Age=604800; HttpOnly; SameSite=Strict` (plus `Secure` si `COOKIE_SECURE=true`) :
 
 ```json
 { "user": { "id": "uuid", "email": "alice@hub.local", "role": "admin", "dept": "direction" } }
 ```
 
-Erreurs : 400 `BAD_REQUEST` (corps invalide), 401 `UNAUTHORIZED` (« Identifiants invalides », même message que l'email existe ou non).
+Erreurs : 400 `BAD_REQUEST` (corps invalide), 401 `UNAUTHORIZED` (« Identifiants invalides », même message que l'email existe ou non), 429 `RATE_LIMITED` (gateway).
+
+### `POST /auth/refresh`
+
+Sans corps. Lit le cookie `refresh_token`, le révoque et répond comme `POST /auth/login` (200, `{ user }`, deux nouveaux cookies). Erreur : 401 `UNAUTHORIZED` (« Session expirée ») si le jeton est absent, expiré, révoqué ou déjà utilisé ; dans ce dernier cas, toutes les sessions de l'utilisateur sont révoquées ([securite.md](securite.md)).
 
 ### `GET /auth/me`
 
@@ -219,7 +246,7 @@ Réponse 200 : `{ "user": { "id", "email", "role", "dept" } }`. 401 si le jeton 
 
 ### `POST /auth/logout`
 
-Réponse 204, avec un `Set-Cookie` qui vide `access_token` (`Max-Age=0`).
+Sans corps. Révoque le refresh token présenté. Réponse 204, avec deux `Set-Cookie` qui vident `access_token` et `refresh_token` (`Max-Age=0`).
 
 ### `GET /api/documents`
 
@@ -227,7 +254,7 @@ Appelée par le navigateur (via la gateway) ou par ai-agent-service (F5).
 
 | Paramètre | Type | Défaut | Rôle |
 | --- | --- | --- | --- |
-| `q` | texte, 200 caractères max | aucun | Filtre plein texte sur le titre et le contenu |
+| `q` | texte, 200 caractères max | aucun | Recherche plein texte (français, accents ignorés) sur le titre et le contenu : un document qui contient au moins un des mots est renvoyé, les plus pertinents d'abord (titre pondéré plus fort) |
 | `limit` | entier de 1 à 20 | 10 | Nombre maximum de documents |
 
 Réponse 200 :
@@ -235,14 +262,34 @@ Réponse 200 :
 ```json
 {
   "documents": [
-    { "id": "uuid", "title": "Politique de congés", "content": "...", "dept": "rh", "updatedAt": "2026-09-15T10:00:00.000Z" }
+    { "id": "uuid", "title": "Politique de congés payés", "content": "...", "dept": "general", "minRole": "employee", "updatedAt": "2026-09-15T10:00:00.000Z" }
   ]
 }
 ```
 
-Seuls les documents autorisés pour le rôle et le département du jeton sont renvoyés. Les règles détaillées sont écrites en semaine 2.
+Seuls les documents autorisés pour le rôle et le département du jeton sont renvoyés. Le filtre est appliqué dans la requête SQL (`apps/business-service/lib/documents.ts`) : un document non autorisé ne sort jamais de la base. Un utilisateur lit un document si :
+
+- il est `admin` ;
+- ou son rôle est au moins le `minRole` du document (`employee` < `manager` < `admin`) **et** le document est de son département, du département `general` (ouvert à tous), ou d'un département qu'une règle d'accès ouvre à son rôle (`/api/rules`).
 
 Erreurs : 400 `BAD_REQUEST` (paramètre invalide), 401 `UNAUTHORIZED`.
+
+### `GET /api/documents/{id}`
+
+Réponse 200 : `{ "document": { ...même forme que ci-dessus } }`. 404 `NOT_FOUND` si le document n'existe pas **ou** n'est pas autorisé : la réponse ne révèle pas son existence. 400 si `id` n'est pas un UUID.
+
+### `/api/rules` (admin)
+
+Une règle d'accès ouvre les documents d'un département aux utilisateurs des autres départements, à partir d'un rôle : `{ "dept": "finance", "minRole": "manager" }` = « les managers de tous les départements lisent les documents finance ». Le `minRole` de chaque document reste appliqué.
+
+| Route | Corps | Réponse |
+| --- | --- | --- |
+| `GET /api/rules` | — | 200 `{ "rules": [{ "id", "dept", "minRole", "description", "updatedAt" }] }` |
+| `POST /api/rules` | `{ "dept", "minRole", "description"? }` | 201 `{ "rule" }` |
+| `PUT /api/rules/{id}` | `{ "dept", "minRole", "description"? }` | 200 `{ "rule" }` |
+| `DELETE /api/rules/{id}` | — | 204 |
+
+`dept` : minuscules, chiffres et tirets (`finance`, `tech`) ; `minRole` : `employee`, `manager` ou `admin` ; `description` : 500 caractères au plus. Erreurs : 400 `BAD_REQUEST`, 401, 403 `FORBIDDEN` (pas admin), 404 `NOT_FOUND` (règle inconnue), 409 `CONFLICT` (règle déjà existante pour ce département et ce rôle).
 
 ### `POST /agent/ask`
 
@@ -258,14 +305,33 @@ Réponse 200 :
 
 ```json
 {
-  "answer": "...",
-  "sources": [{ "id": "uuid", "title": "Politique de congés" }]
+  "answer": "Vous acquérez 25 jours ouvrés de congés payés par an, plus 10 jours de RTT [D1].",
+  "sources": [{ "ref": "D1", "id": "uuid", "title": "Politique de congés payés" }],
+  "removed": 0
 }
 ```
 
-`sources` liste les documents utilisés pour la réponse : l'utilisateur peut vérifier d'où vient l'information.
+Chaque phrase de `answer` se termine par la référence `[Dn]` du document qui l'appuie, écrite par ai-agent-service après vérification. `sources` liste exactement les documents cités : l'utilisateur peut vérifier d'où vient chaque information. `removed` est le nombre de phrases retirées par la vérification (aucun document ne les appuie, ou un nombre n'y figure pas) ; détail dans [prompt-book.md](prompt-book.md), section 4.
 
-Erreurs : 400 `BAD_REQUEST`, 401 `UNAUTHORIZED`, 429 `RATE_LIMITED`, 502 `UPSTREAM_ERROR` (service métier ou Mistral indisponible).
+Erreurs : 400 `BAD_REQUEST`, 401 `UNAUTHORIZED`, 429 `RATE_LIMITED`, 502 `UPSTREAM_ERROR` (service métier ou LLM indisponible).
+
+### `POST /agent/summarize`
+
+Requête : `{ "documentId": "uuid" }`. Réponse 200 :
+
+```json
+{ "summary": "- ...\n- ...\n- ...", "source": { "id": "uuid", "title": "Remboursement des notes de frais" } }
+```
+
+Erreurs : 400 `BAD_REQUEST`, 401, 404 `NOT_FOUND` (document inexistant ou non autorisé : le LLM n'est pas appelé), 429, 502 `UPSTREAM_ERROR`.
+
+### `GET /agent/history`
+
+Paramètre `limit` (1 à 50, défaut 20). Réponse 200 : les derniers échanges de l'utilisateur connecté, et de lui seul :
+
+```json
+{ "exchanges": [{ "id": "uuid", "kind": "ask", "input": "question", "output": "réponse", "sources": [...], "createdAt": "..." }] }
+```
 
 ### Routes internes
 
@@ -290,10 +356,11 @@ Toute erreur, quel que soit le service, a la même forme :
 | `BAD_REQUEST` | 400 | Entrée invalide (schéma zod non respecté) |
 | `UNAUTHORIZED` | 401 | Jeton absent, invalide ou expiré |
 | `FORBIDDEN` | 403 | Rôle insuffisant |
-| `NOT_FOUND` | 404 | Ressource inexistante |
+| `NOT_FOUND` | 404 | Ressource inexistante (ou non autorisée, sans le dire) |
+| `CONFLICT` | 409 | Ressource déjà existante (règle d'accès en double) |
 | `RATE_LIMITED` | 429 | Trop de requêtes |
 | `INTERNAL` | 500 | Erreur inattendue (message générique, détail dans les journaux) |
-| `UPSTREAM_ERROR` | 502 | Un service appelé ou Mistral n'a pas répondu correctement |
+| `UPSTREAM_ERROR` | 502 | Un service appelé ou le LLM n'a pas répondu correctement |
 
 `requestId` reprend l'en-tête `X-Request-Id`, ou un UUID généré s'il est absent. Le même identifiant apparaît dans la réponse et dans les journaux de chaque service traversé.
 
@@ -306,9 +373,10 @@ Un service ne renvoie jamais tel quel le corps d'erreur d'un service appelé : i
 | 2xx | Suite normale du traitement |
 | 401 (jeton expiré pendant le traitement) | 401 `UNAUTHORIZED` |
 | 403 | 403 `FORBIDDEN` |
+| 404 sur `GET /api/documents/{id}` | 404 `NOT_FOUND` : document inexistant ou non autorisé (résumé demandé par l'utilisateur) |
 | Autre 4xx | 502 `UPSTREAM_ERROR` : erreur d'intégration, détail dans les journaux |
 | 5xx, délai dépassé, connexion refusée | 502 `UPSTREAM_ERROR` |
-| Mistral : 429, 5xx ou délai dépassé | 502 `UPSTREAM_ERROR`, message « Service d'IA indisponible » |
+| NIM : 401, 404 (modèle inconnu), 429, 5xx ou délai dépassé | 502 `UPSTREAM_ERROR`, message « Service d'IA indisponible » |
 
 ### Pas de nouvelle tentative automatique
 
