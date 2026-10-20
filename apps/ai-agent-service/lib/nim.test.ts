@@ -6,7 +6,7 @@ import { ASK_PROMPT, SUMMARIZE_PROMPT } from "./prompts";
 const messages = [{ role: "user" as const, content: "Bonjour" }];
 const completion = (content: string | null) =>
   Response.json({
-    model: "mistralai/mistral-nemotron",
+    model: "nvidia/nemotron-3.5-lightning-30b-a3b",
     choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
     usage: { prompt_tokens: 12, completion_tokens: 5 },
   });
@@ -14,7 +14,7 @@ const completion = (content: string | null) =>
 beforeEach(() => {
   vi.stubEnv("NIM_API_KEY", "nvapi-cle-de-test");
   vi.stubEnv("NIM_BASE_URL", "http://nim.test/v1");
-  vi.stubEnv("NIM_MODEL", "mistralai/mistral-nemotron");
+  vi.stubEnv("NIM_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b");
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -35,15 +35,16 @@ describe("chat", () => {
     expect(init.headers.Authorization).toBe("Bearer nvapi-cle-de-test");
     expect(init.signal).toBeInstanceOf(AbortSignal);
     expect(JSON.parse(init.body)).toEqual({
-      model: "mistralai/mistral-nemotron",
+      model: "nvidia/nemotron-3.5-lightning-30b-a3b",
       messages,
       temperature: 0.1,
       max_tokens: 600,
       stream: false,
+      chat_template_kwargs: { enable_thinking: false },
     });
     expect(result).toEqual({
       content: '{"answer":"ok","sources":[]}',
-      model: "mistralai/mistral-nemotron",
+      model: "nvidia/nemotron-3.5-lightning-30b-a3b",
       promptTokens: 12,
       completionTokens: 5,
     });
@@ -56,7 +57,7 @@ describe("chat", () => {
     vi.stubGlobal("fetch", fetch);
     await chat(SUMMARIZE_PROMPT, messages, "req-1");
     expect(fetch.mock.calls[0]![0]).toBe("https://integrate.api.nvidia.com/v1/chat/completions");
-    expect(JSON.parse(fetch.mock.calls[0]![1].body).model).toBe("mistralai/mistral-nemotron");
+    expect(JSON.parse(fetch.mock.calls[0]![1].body).model).toBe("nvidia/nemotron-3.5-lightning-30b-a3b");
   });
 
   it("retire le raisonnement <think> des modèles qui en produisent", async () => {
@@ -72,6 +73,8 @@ describe("chat", () => {
     ["panne (503)", () => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("", { status: 503 })))],
     ["délai dépassé", () => vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("timeout", "TimeoutError")))],
     ["réponse inattendue", () => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ choices: [] })))],
+    ["réponse vide, coupée par max_tokens", () => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ model: "m", choices: [{ message: { content: "" }, finish_reason: "length" }] })))],
+    ["seulement du raisonnement", () => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(completion("<think>Je réfléchis…</think>")))],
   ])("%s : 502 « Service d'IA indisponible »", async (_, setup) => {
     setup();
     const err = await chat(ASK_PROMPT, messages, "req-1").catch((e: unknown) => e);

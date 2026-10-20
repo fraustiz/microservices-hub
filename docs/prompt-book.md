@@ -4,11 +4,11 @@ Référence des prompts envoyés au LLM par ai-agent-service : texte exact, para
 
 | | |
 | --- | --- |
-| Version du Prompt Book | V1.1 (2026-10-20) : passage de l'API Mistral à NVIDIA NIM |
+| Version du Prompt Book | V1.2 (2026-10-20) : modèle NVIDIA Nemotron 3.5 Lightning, raisonnement désactivé |
 | Code | `apps/ai-agent-service/lib/prompts.ts` (texte et paramètres), `lib/agent.ts` (enchaînement), `lib/nim.ts` (appel API) |
 | Contrôle de cohérence | `lib/prompt-book.test.ts` échoue si le texte, la version ou les paramètres d'un prompt diffèrent entre ce document et le code |
 | Fournisseur | API NVIDIA NIM, `POST /v1/chat/completions` au format OpenAI (échange F6 de [interconnexion.md](interconnexion.md)) |
-| Modèle | `mistralai/mistral-nemotron` : modèle Mistral hébergé par NVIDIA, **en fin de vie** (voir section 2) |
+| Modèle | `nvidia/nemotron-3.5-lightning-30b-a3b` (NVIDIA Nemotron 3.5 Lightning), raisonnement désactivé |
 
 ## 1. Principes communs
 
@@ -31,15 +31,16 @@ Ces règles valent pour tous les prompts, présents et futurs.
 
 | Paramètre | Valeur | Où le changer |
 | --- | --- | --- |
-| Modèle | `mistralai/mistral-nemotron` (en fin de vie, à remplacer) | Variable `NIM_MODEL` d'ai-agent-service |
+| Modèle | `nvidia/nemotron-3.5-lightning-30b-a3b` | Variable `NIM_MODEL` d'ai-agent-service (modèle validé par le script de test de [developpement.md](developpement.md)) |
 | URL de l'API | `https://integrate.api.nvidia.com/v1` | Variable `NIM_BASE_URL` (remplacée par un faux serveur dans les tests e2e) |
 | Clé | `NIM_API_KEY` (`nvapi-…`), uniquement dans `apps/ai-agent-service/.env` | Jamais dans le code ni dans Git |
 | Délai maximal | 30 s (`LLM_TIMEOUT_MS`) | `packages/shared/src/config.ts` |
 | Nouvelle tentative | Aucune ([D11](decisions.md)) | — |
 | Mode JSON de l'API | Non utilisé : le format est demandé par le prompt et l'objet extrait par le code | — |
+| Raisonnement | Désactivé : `chat_template_kwargs: { "enable_thinking": false }` à chaque appel | `reasoning` de chaque prompt, `lib/prompts.ts` |
 | Température, `max_tokens` | Propres à chaque prompt (ci-dessous) | `lib/prompts.ts` |
 
-**Pourquoi NVIDIA NIM et ce modèle** ([D20](decisions.md)) : l'API NIM est gratuite pour le développement avec un compte NVIDIA Developer, alors que le plan gratuit de Mistral n'active plus les clés API (constaté le 2026-10-20). Le modèle visé était un modèle Mistral, pour garder l'esprit du sujet (« OpenAI ou Mistral »). Aucun n'est servi sur le compte du projet (relevé ci-dessous) : le projet passe à un modèle NVIDIA, en cours de validation. Un modèle d'instruction généraliste suffit pour reformuler quelques documents courts en français.
+**Pourquoi NVIDIA NIM et ce modèle** ([D20](decisions.md)) : l'API NIM est gratuite pour le développement avec un compte NVIDIA Developer, alors que le plan gratuit de Mistral n'active plus les clés API (constaté le 2026-10-20). Le modèle visé était un modèle Mistral, pour garder l'esprit du sujet (« OpenAI ou Mistral »). Aucun n'est servi sur le compte du projet, ni le seul modèle OpenAI du catalogue (relevé ci-dessous) : le projet utilise un modèle NVIDIA, Nemotron 3.5 Lightning ([D21](decisions.md)). Un modèle d'instruction généraliste suffit pour reformuler quelques documents courts en français.
 
 **Cycle de vie des modèles** : NVIDIA retire des modèles du catalogue. Le premier appel réel (2026-10-20) a reçu `410 Gone` : `mistralai/mistral-nemotron` est en fin de vie depuis le 2026-09-28. La liste `GET /v1/models` n'est pas fiable pour choisir un remplaçant : `mistralai/mistral-large-2-instruct` y figure mais répond `404 … Not found for account`. Le remplaçant sera choisi parmi les modèles qui répondent réellement au script de test de [developpement.md](developpement.md) ; il fera passer les prompts en version `1.2.0`. En attendant, mettre dans `NIM_MODEL` un modèle validé par ce script. Tout autre modèle du catalogue s'utilise en changeant `NIM_MODEL` ; il faut alors refaire l'évaluation de la section 7.
 
@@ -78,9 +79,21 @@ Requête de 5 jetons (« Say OK ») envoyée à chaque modèle de chat avec la c
 | `content` | `{"answer": "24,96 jours"}` : JSON seul, juste, en français |
 | Raisonnement | Dans un champ séparé, `reasoning_content`, en anglais, jamais dans `content` |
 
-Critères 3 et 4 remplis. Critère 5 non rempli en l'état : sur une vraie question avec 5 documents, le raisonnement dépassera les 600 jetons et coupera la réponse. Le raisonnement doit être désactivé, ou la marge de `max_tokens` augmentée (test en cours). `reasoning_content` n'est jamais lu par le code : le raisonnement n'est ni enregistré dans l'historique ni montré à l'utilisateur.
+Critères 3 et 4 remplis. Critère 5 non rempli en l'état : sur une vraie question avec 5 documents, le raisonnement dépasserait les 600 jetons et couperait la réponse. `reasoning_content` n'est jamais lu par le code : le raisonnement n'est ni enregistré dans l'historique ni montré à l'utilisateur.
 
-**Statut** : `nemotron-3.5-lightning-30b-a3b` retenu, sous réserve du réglage du raisonnement. Une fois validé, il deviendra la valeur par défaut de `NIM_MODEL`, avec les prompts en version `1.2.0`, une entrée au journal (section 9) et la décision D21. S'il raisonne avant de répondre, le raisonnement sera désactivé ou la marge de `max_tokens` augmentée, et noté ici.
+**Désactivation du raisonnement** (même question, même consigne) :
+
+| Réglage | Durée | Jetons en sortie | Raisonnement | `content` |
+| --- | --- | --- | --- | --- |
+| Aucun (par défaut) | 4,5 s | 571 | 1 seul champ `reasoning_content`, en anglais | `{"answer": "24,96 jours"}` |
+| `chat_template_kwargs: { "enable_thinking": false }` | **0,6 s** | **8** | Aucun | `{"answer": "25"}` |
+| `/no_think` en tête du message system | 6,9 s | 600 (limite, fin `length`) | 1 910 caractères | **Vide** : réponse coupée |
+
+**Réglage retenu** : `enable_thinking: false`, envoyé à chaque appel (paramètre `reasoning` de chaque prompt). Les cinq critères sont remplis. `/no_think` est sans effet sur ce modèle.
+
+**Contrepartie observée** : sans raisonnement, le modèle a arrondi un calcul (24,96 → 25). Pour l'agent, ce n'est pas bloquant : il reformule les documents (qui disent eux-mêmes 25 jours ouvrés), et la règle 1 de `agent.ask` lui interdit d'ajouter une information absente des documents, donc de calculer. Le critère « Fidélité » de l'évaluation (section 7) le vérifie.
+
+**Statut** : `nvidia/nemotron-3.5-lightning-30b-a3b` validé, modèle par défaut depuis la version `1.2.0` des prompts. Reste l'évaluation des réponses dans l'application (section 7). Une fois validé, il deviendra la valeur par défaut de `NIM_MODEL`, avec les prompts en version `1.2.0`, une entrée au journal (section 9) et la décision D21. S'il raisonne avant de répondre, le raisonnement sera désactivé ou la marge de `max_tokens` augmentée, et noté ici.
 
 **Pourquoi pas de mode JSON imposé** : NIM propose plusieurs mécanismes (`response_format`, `guided_json`) dont le support et la syntaxe varient selon les modèles et les versions. Les envoyer exposerait l'agent à des erreurs 400 au moindre changement de modèle. La sortie JSON est donc demandée par la règle 7 du prompt, le code extrait l'objet même s'il est entouré de texte ou d'un bloc de code, et se replie sur le texte brut sinon (section 4).
 
@@ -90,10 +103,10 @@ Erreurs du fournisseur (clé invalide 401, modèle absent du catalogue 404, mod�
 
 ## 3. Catalogue
 
-| Prompt | Version | Route | Sortie | Température | `max_tokens` |
-| --- | --- | --- | --- | --- | --- |
-| `agent.ask` | `1.1.0` | `POST /agent/ask` | JSON `{ answer, sources }` (demandé par le prompt) | 0,1 | 600 |
-| `agent.summarize` | `1.1.0` | `POST /agent/summarize` | Texte : 3 à 5 puces | 0,2 | 400 |
+| Prompt | Version | Route | Sortie | Température | `max_tokens` | Raisonnement |
+| --- | --- | --- | --- | --- | --- | --- |
+| `agent.ask` | `1.2.0` | `POST /agent/ask` | JSON `{ answer, sources }` (demandé par le prompt) | 0,1 | 600 | désactivé |
+| `agent.summarize` | `1.2.0` | `POST /agent/summarize` | Texte : 3 à 5 puces | 0,2 | 400 | désactivé |
 
 ## 4. `agent.ask` — répondre à une question à partir des documents
 
@@ -165,7 +178,7 @@ L'identifiant réel (UUID) d'un document n'est pas envoyé : le modèle recopie 
 { "answer": "Vous acquérez 25 jours ouvrés de congés payés par an, plus 10 jours de RTT [D1].", "sources": ["D1"] }
 ```
 
-1. Le raisonnement du modèle n'est jamais gardé : un bloc `<think>…</think>` dans le texte est retiré, et le champ séparé `reasoning_content` (Nemotron) n'est pas lu.
+1. Le raisonnement du modèle n'est jamais gardé : un bloc `<think>…</think>` dans le texte est retiré, et le champ séparé `reasoning_content` (Nemotron) n'est pas lu. Réponse vide après ce nettoyage (par exemple coupée par `max_tokens`, fin `length`) : `502 UPSTREAM_ERROR`, avec la raison de fin dans les journaux ; réponse non vide mais coupée : avertissement dans les journaux.
 2. Extraction de l'objet JSON (du premier `{` au dernier `}`), puis validation par un schéma zod (`answer` texte non vide, `sources` tableau de textes). Un texte ou un bloc de code autour de l'objet est donc toléré.
 3. JSON absent ou invalide : le texte brut devient la réponse et les sources sont lues dans les citations `[Dn]` du texte.
 4. `sources` vide : les sources sont lues dans les citations `[Dn]` de la réponse.
@@ -250,6 +263,8 @@ Chaque cas indique comment il est vérifié : test unitaire (`pnpm test`), test 
 | A9 | ask | NIM en panne (503), limite atteinte (429), modèle inconnu (404) ou en fin de vie (410), délai dépassé | `502 UPSTREAM_ERROR` « Service d'IA indisponible » | unitaire, e2e |
 | A10 | ask | Requête transmise à NIM | Prompt system `agent.ask`, documents délimités, modèle et température 0,1 ; ni JWT ni email dans la requête | e2e |
 | A11 | ask, summarize | Modèle de raisonnement (sortie précédée de `<think>…</think>`) | Raisonnement retiré avant le post-traitement | unitaire |
+| A12 | ask, summarize | Réponse vide : coupée par `max_tokens` ou faite seulement de raisonnement | `502 UPSTREAM_ERROR`, raison de fin dans les journaux (pas de réponse vide affichée) | unitaire |
+| A13 | ask, summarize | Requête transmise à NIM | `chat_template_kwargs.enable_thinking` à `false` | unitaire, e2e |
 | S1 | summarize | « Remboursement des notes de frais » | 3 à 5 puces commençant par « - », chiffres conservés | e2e (format), manuel |
 | S2 | summarize | bruno : « Grille salariale 2026 » (se déclare confidentielle) | Première puce : « - Document confidentiel : ne pas diffuser. » | manuel |
 | S3 | summarize | chloe : document non autorisé | `404 NOT_FOUND`, aucun appel au LLM | e2e |
@@ -291,10 +306,14 @@ La version est enregistrée avec chaque échange (`exchanges.prompt_version`) : 
 | 2026-10-20 | `agent.summarize` | `1.0.0` | Création : résumé en 3 à 5 puces, avertissement si confidentiel |
 | 2026-10-20 | `agent.ask` | `1.1.0` | Fournisseur NVIDIA NIM, modèle `mistralai/mistral-nemotron` ; plus de mode JSON côté API : règle 7 précisée (« sans texte avant ou après ni bloc de code »), objet JSON extrait par le code |
 | 2026-10-20 | `agent.summarize` | `1.1.0` | Fournisseur NVIDIA NIM, modèle `mistralai/mistral-nemotron` (texte inchangé) |
+| 2026-10-20 | `agent.ask` | `1.2.0` | Modèle `nvidia/nemotron-3.5-lightning-30b-a3b` (aucun modèle Mistral servi sur le compte), raisonnement désactivé (`enable_thinking: false`). Texte inchangé |
+| 2026-10-20 | `agent.summarize` | `1.2.0` | Même modèle, raisonnement désactivé. Texte inchangé |
 
 ## 10. Limites connues de la V1
 
 - **Recherche par mots-clés** : la recherche plein texte de PostgreSQL ne trouve pas un document qui répond à la question avec d'autres mots (synonymes). Évolution possible : recherche sémantique (modèle d'embeddings du catalogue NIM et pgvector dans `business_db`).
+- **Calculs** : sans raisonnement, le modèle arrondit les calculs (24,96 → 25 au test). L'agent ne doit pas calculer : il reformule les documents (règle 1).
+- **Écart au sujet** : le sujet demande OpenAI ou Mistral ; aucun de leurs modèles n'est servi sur le compte NIM du projet, d'où un modèle NVIDIA. Revenir à un modèle Mistral ne demande que de changer `NIM_MODEL` (ou `NIM_BASE_URL` et la clé pour un autre fournisseur compatible OpenAI), puis une nouvelle version des prompts et l'évaluation de la section 7.
 - **Offre gratuite de NIM** : réservée au développement, limitée à environ 40 requêtes par minute par clé (partagées entre tous les utilisateurs de la plateforme). Avant d'envoyer de vrais documents d'entreprise, vérifier les conditions d'utilisation des données de NVIDIA.
 - **Pas de mémoire de conversation** : chaque question est traitée seule ; l'historique sert à la consultation, pas au contexte.
 - **Injection de prompt** : la séparation system / données et l'échappement réduisent le risque sans l'annuler. La vraie protection est en amont : le LLM ne reçoit que des documents que l'utilisateur peut déjà lire, et sa sortie n'est jamais exécutée.

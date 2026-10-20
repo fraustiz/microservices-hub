@@ -10,7 +10,7 @@ function completion(content) {
     id: `fake-${requests.length}`,
     object: "chat.completion",
     created: Math.floor(Date.now() / 1000),
-    model: "mistralai/mistral-nemotron",
+    model: "nvidia/nemotron-3.5-lightning-30b-a3b",
     choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
     usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
   };

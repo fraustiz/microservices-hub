@@ -17,7 +17,10 @@ describe.each([ASK_PROMPT, SUMMARIZE_PROMPT])("Prompt Book : $id", (prompt) => {
 
   it("même version et mêmes paramètres dans le catalogue", () => {
     const temperature = String(prompt.temperature).replace(".", ",");
+    const reasoning = prompt.reasoning ? "activé" : "désactivé";
     expect(book).toContain(`| \`${prompt.id}\` | \`${prompt.version}\` |`);
-    expect(book).toMatch(new RegExp(`\\| \`${prompt.id}\` \\| \`${prompt.version}\` \\|.*\\| ${temperature} \\| ${prompt.maxTokens} \\|`));
+    expect(book).toMatch(
+      new RegExp(`\\| \`${prompt.id}\` \\| \`${prompt.version}\` \\|.*\\| ${temperature} \\| ${prompt.maxTokens} \\| ${reasoning} \\|`),
+    );
   });
 });

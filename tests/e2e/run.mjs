@@ -196,7 +196,11 @@ await check("la requête envoyée à NIM : modèle, prompt agent.ask, documents 
   equal(sent.length, 1, "un seul appel au LLM");
   const { authorization, body } = sent[0];
   equal(authorization, "Bearer nvapi-cle-factice-e2e", "clé API NIM");
-  equal([body.model, body.temperature, body.max_tokens, body.stream], ["mistralai/mistral-nemotron", 0.1, 600, false], "paramètres");
+  equal(
+    [body.model, body.temperature, body.max_tokens, body.stream, body.chat_template_kwargs],
+    ["nvidia/nemotron-3.5-lightning-30b-a3b", 0.1, 600, false, { enable_thinking: false }],
+    "paramètres",
+  );
   equal(body.messages.map((m) => m.role), ["system", "user"], "rôles");
   assert(body.messages[0].content.startsWith("Tu es l'assistant documentaire"), "prompt system agent.ask");
   assert(/^<documents>\n<document ref="D1"/.test(body.messages[1].content), "documents délimités");

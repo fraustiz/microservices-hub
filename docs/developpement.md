@@ -209,7 +209,7 @@ Chaque service lit ses variables dans `apps/<service>/.env`, créé et tenu à j
 | ai-agent-service | `DATABASE_URL` | Connexion à `agent_db` |
 | ai-agent-service | `AUTH_JWKS_URL`, `BUSINESS_SERVICE_URL` | Adresses d'auth-service et de business-service (surchargées par `docker-compose.yml`) |
 | ai-agent-service | `NIM_API_KEY` | **Secret.** Clé de l'API NVIDIA NIM (`nvapi-…`) |
-| ai-agent-service | `NIM_MODEL` | Modèle du catalogue, `mistralai/mistral-nemotron` par défaut (en fin de vie : en choisir un avec le test ci-dessus) |
+| ai-agent-service | `NIM_MODEL` | Modèle du catalogue, `nvidia/nemotron-3.5-lightning-30b-a3b` par défaut (validé le 2026-10-20 ; en changer avec le script de test des modèles) |
 | ai-agent-service | `NIM_BASE_URL` | URL de l'API, `https://integrate.api.nvidia.com/v1` par défaut (faux serveur dans les tests e2e) |
 | web | `NEXT_PUBLIC_GATEWAY_URL` | Seulement en `pnpm dev` : adresse de la gateway (vide en production, même origine) |
 

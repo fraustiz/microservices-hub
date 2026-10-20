@@ -10,6 +10,8 @@ export interface PromptDefinition {
   system: string;
   temperature: number;
   maxTokens: number;
+  /** Raisonnement du modèle avant sa réponse (`chat_template_kwargs.enable_thinking` de NIM). */
+  reasoning: boolean;
 }
 
 export interface ChatMessage {
@@ -35,9 +37,10 @@ export const NOT_FOUND_ANSWER = "Je ne trouve pas cette information dans les doc
 
 export const ASK_PROMPT: PromptDefinition = {
   id: "agent.ask",
-  version: "1.1.0",
+  version: "1.2.0",
   temperature: 0.1,
   maxTokens: 600,
+  reasoning: false,
   system: `Tu es l'assistant documentaire interne de l'entreprise. Tu réponds aux questions des salariés à partir des seuls documents fournis entre les balises <documents> et </documents>.
 
 Règles :
@@ -52,9 +55,10 @@ Règles :
 
 export const SUMMARIZE_PROMPT: PromptDefinition = {
   id: "agent.summarize",
-  version: "1.1.0",
+  version: "1.2.0",
   temperature: 0.2,
   maxTokens: 400,
+  reasoning: false,
   system: `Tu résumes un document interne de l'entreprise pour un salarié.
 
 Règles :

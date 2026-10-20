@@ -126,14 +126,15 @@ Authorization: Bearer <NIM_API_KEY>
 Content-Type: application/json
 
 {
-  "model": "mistralai/mistral-nemotron",
+  "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
   "messages": [
     { "role": "system", "content": "<règles du prompt agent.ask>" },
     { "role": "user", "content": "<documents>...</documents>\n\n<question>...</question>" }
   ],
   "temperature": 0.1,
   "max_tokens": 600,
-  "stream": false
+  "stream": false,
+  "chat_template_kwargs": { "enable_thinking": false }
 }
 ```
 

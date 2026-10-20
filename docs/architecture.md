@@ -65,7 +65,7 @@ Lecture :
 | `web` (Next.js) | Interface utilisateur. N'appelle que la gateway (même origine) | `/` | — |
 | `auth-service` | Identifiants, émission des JWT RS256 et des refresh tokens, JWKS, vérification pour la gateway | `/auth/**` | `auth_db` |
 | `business-service` | Documents, règles d'accès, recherche plein texte, filtrage par rôle et département | `/api/**` | `business_db` |
-| `ai-agent-service` | Prompts backend ([Prompt Book](prompt-book.md)), appel du LLM (modèle Mistral via NVIDIA NIM), historique des échanges | `/agent/**` | `agent_db` |
+| `ai-agent-service` | Prompts backend ([Prompt Book](prompt-book.md)), appel du LLM (Nemotron 3.5 Lightning via NVIDIA NIM), historique des échanges | `/agent/**` | `agent_db` |
 
 Les trois services sont des applications Next.js en mode API seul (route handlers, aucune page). Le code commun (contrôle d'accès, format d'erreur, configuration) est dans `packages/shared`, qui ne contient ni données ni connexion à une base.
 
@@ -109,4 +109,4 @@ Contrats d'API détaillés : [interconnexion.md](interconnexion.md).
 | JWT RS256 (`jose`) | Vérification par clé publique : seul auth-service peut signer |
 | zod | Validation de toutes les entrées, messages d'erreur en français |
 | postgres.js | SQL paramétré, migrations au démarrage, sans ORM ([D16](decisions.md)) |
-| NVIDIA NIM (`mistralai/mistral-nemotron`) | Brique d'IA générative externe, API au format OpenAI, appelée uniquement depuis le backend ([D20](decisions.md)) |
+| NVIDIA NIM (`nvidia/nemotron-3.5-lightning-30b-a3b`) | Brique d'IA générative externe, API au format OpenAI, appelée uniquement depuis le backend ([D20](decisions.md)) |

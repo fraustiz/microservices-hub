@@ -12,7 +12,9 @@ export interface ChatResult {
 /** Réponse au format OpenAI (`/v1/chat/completions`), que suit l'API NVIDIA NIM. */
 const completion = z.object({
   model: z.string(),
-  choices: z.array(z.object({ message: z.object({ content: z.string().nullable() }) })).min(1),
+  choices: z
+    .array(z.object({ message: z.object({ content: z.string().nullable() }), finish_reason: z.string().nullish() }))
+    .min(1),
   usage: z.object({ prompt_tokens: z.number(), completion_tokens: z.number() }).optional(),
 });
 
@@ -29,7 +31,7 @@ export async function chat(prompt: PromptDefinition, messages: ChatMessage[], re
     throw unavailable();
   }
   const baseUrl = process.env.NIM_BASE_URL || "https://integrate.api.nvidia.com/v1";
-  const model = process.env.NIM_MODEL || "mistralai/mistral-nemotron";
+  const model = process.env.NIM_MODEL || "nvidia/nemotron-3.5-lightning-30b-a3b";
 
   let res: Response;
   try {
@@ -42,6 +44,8 @@ export async function chat(prompt: PromptDefinition, messages: ChatMessage[], re
         temperature: prompt.temperature,
         max_tokens: prompt.maxTokens,
         stream: false,
+        // Sans ce réglage, un modèle à raisonnement (Nemotron) peut consommer tous les max_tokens avant de répondre.
+        chat_template_kwargs: { enable_thinking: prompt.reasoning },
       }),
       signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
     });
@@ -63,9 +67,19 @@ export async function chat(prompt: PromptDefinition, messages: ChatMessage[], re
     log("error", "réponse NIM inattendue", { requestId, prompt: prompt.id, model });
     throw unavailable();
   }
+  const choice = parsed.data.choices[0]!;
+  // Le raisonnement n'est jamais gardé : bloc <think>…</think> retiré, champ reasoning_content jamais lu.
+  const content = (choice.message.content ?? "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  if (!content) {
+    // Typiquement finish_reason « length » : la limite de jetons a été atteinte avant la réponse.
+    log("error", "réponse NIM vide", { requestId, prompt: prompt.id, model, finishReason: choice.finish_reason });
+    throw unavailable();
+  }
+  if (choice.finish_reason === "length") {
+    log("warn", "réponse NIM coupée par max_tokens", { requestId, prompt: prompt.id, model });
+  }
   return {
-    // Les modèles de raisonnement du catalogue NIM peuvent préfixer leur réponse par <think>…</think>.
-    content: (parsed.data.choices[0]!.message.content ?? "").replace(/<think>[\s\S]*?<\/think>/g, "").trim(),
+    content,
     model: parsed.data.model,
     promptTokens: parsed.data.usage?.prompt_tokens,
     completionTokens: parsed.data.usage?.completion_tokens,

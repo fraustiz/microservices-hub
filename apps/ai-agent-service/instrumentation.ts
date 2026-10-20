@@ -5,7 +5,7 @@ export async function register() {
   const { migrate } = await import("./lib/db");
   await migrate();
   log("info", "ai-agent-service prêt", {
-    model: process.env.NIM_MODEL || "mistralai/mistral-nemotron",
+    model: process.env.NIM_MODEL || "nvidia/nemotron-3.5-lightning-30b-a3b",
     nimKey: Boolean(process.env.NIM_API_KEY),
   });
 }

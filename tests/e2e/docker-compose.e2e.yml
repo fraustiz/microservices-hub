@@ -15,5 +15,5 @@ services:
     environment:
       NIM_BASE_URL: http://fake-nim:8080/v1
       NIM_API_KEY: nvapi-cle-factice-e2e
-      NIM_MODEL: mistralai/mistral-nemotron
+      NIM_MODEL: nvidia/nemotron-3.5-lightning-30b-a3b
     depends_on: { fake-nim: { condition: service_started } }
