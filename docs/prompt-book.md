@@ -52,7 +52,7 @@ Requête de 5 jetons (« Say OK ») envoyée à chaque modèle de chat avec la c
 | Mistral | `mistral-nemotron` (modèle de la V1.1), `mistral-large-3-675b-instruct-2512` | 410 | En fin de vie |
 | Mistral | `mistral-large-2-instruct`, `mistral-large`, `mistral-medium-3-instruct`, `mistral-small-3.1-24b-instruct-2503`, `mistral-7b-instruct-v0.3`, `codestral-22b-instruct-v0.1`, `magistral-small-2506`, `mixtral-8x22b-v0.1` | 404 | Listés par `GET /v1/models`, mais non servis pour le compte |
 | Meta | `llama-3.3-70b-instruct` | 410 | En fin de vie |
-| OpenAI | `gpt-oss-20b` | Pas de réponse | Délai probablement dépassé ; à retester (seule option « OpenAI » du catalogue) |
+| OpenAI | `gpt-oss-20b` | Pas de réponse | Connexion fermée par le serveur, deux fois : écarté |
 | NVIDIA | `nemotron-3.5-lightning-30b-a3b` | 200 | **Candidat retenu** : instruction généraliste, mixture d'experts de 30 milliards de paramètres dont environ 3 actifs (d'après son nom), donc rapide |
 | NVIDIA | `nemotron-3-ultra-550b-a55b` | 200 | Très gros, donc lent : réserve si la qualité de Lightning est insuffisante |
 | NVIDIA | `nemotron-3.5-super-vl-120b-a12b` | 200 | Texte et image, plus lourd que nécessaire |
@@ -68,7 +68,19 @@ Requête de 5 jetons (« Say OK ») envoyée à chaque modèle de chat avec la c
 4. il répond nettement sous le délai de 30 s ;
 5. son éventuel raisonnement ne consomme pas les `max_tokens` (600 pour `agent.ask`, 400 pour `agent.summarize`) au point de couper la réponse.
 
-**Statut** : `nemotron-3.5-lightning-30b-a3b` remplit les critères 1 et 2 ; les critères 3 à 5 sont en cours de vérification (format du message renvoyé, présence et place du raisonnement, durée, qualité). Une fois validé, il deviendra la valeur par défaut de `NIM_MODEL`, avec les prompts en version `1.2.0`, une entrée au journal (section 9) et la décision D21. S'il raisonne avant de répondre, le raisonnement sera désactivé ou la marge de `max_tokens` augmentée, et noté ici.
+**Test de `nemotron-3.5-lightning-30b-a3b`** (question de calcul en français, consigne « uniquement un objet JSON `{"answer": "..."}` », température 0,1, `max_tokens` 600) :
+
+| Mesure | Résultat |
+| --- | --- |
+| Durée | 4,5 s |
+| Fin | `stop` |
+| Jetons | 57 en entrée, **571 en sortie**, presque tous pour le raisonnement |
+| `content` | `{"answer": "24,96 jours"}` : JSON seul, juste, en français |
+| Raisonnement | Dans un champ séparé, `reasoning_content`, en anglais, jamais dans `content` |
+
+Critères 3 et 4 remplis. Critère 5 non rempli en l'état : sur une vraie question avec 5 documents, le raisonnement dépassera les 600 jetons et coupera la réponse. Le raisonnement doit être désactivé, ou la marge de `max_tokens` augmentée (test en cours). `reasoning_content` n'est jamais lu par le code : le raisonnement n'est ni enregistré dans l'historique ni montré à l'utilisateur.
+
+**Statut** : `nemotron-3.5-lightning-30b-a3b` retenu, sous réserve du réglage du raisonnement. Une fois validé, il deviendra la valeur par défaut de `NIM_MODEL`, avec les prompts en version `1.2.0`, une entrée au journal (section 9) et la décision D21. S'il raisonne avant de répondre, le raisonnement sera désactivé ou la marge de `max_tokens` augmentée, et noté ici.
 
 **Pourquoi pas de mode JSON imposé** : NIM propose plusieurs mécanismes (`response_format`, `guided_json`) dont le support et la syntaxe varient selon les modèles et les versions. Les envoyer exposerait l'agent à des erreurs 400 au moindre changement de modèle. La sortie JSON est donc demandée par la règle 7 du prompt, le code extrait l'objet même s'il est entouré de texte ou d'un bloc de code, et se replie sur le texte brut sinon (section 4).
 
@@ -153,7 +165,7 @@ L'identifiant réel (UUID) d'un document n'est pas envoyé : le modèle recopie 
 { "answer": "Vous acquérez 25 jours ouvrés de congés payés par an, plus 10 jours de RTT [D1].", "sources": ["D1"] }
 ```
 
-1. Un éventuel raisonnement `<think>…</think>` (modèles de raisonnement du catalogue NIM) est retiré.
+1. Le raisonnement du modèle n'est jamais gardé : un bloc `<think>…</think>` dans le texte est retiré, et le champ séparé `reasoning_content` (Nemotron) n'est pas lu.
 2. Extraction de l'objet JSON (du premier `{` au dernier `}`), puis validation par un schéma zod (`answer` texte non vide, `sources` tableau de textes). Un texte ou un bloc de code autour de l'objet est donc toléré.
 3. JSON absent ou invalide : le texte brut devient la réponse et les sources sont lues dans les citations `[Dn]` du texte.
 4. `sources` vide : les sources sont lues dans les citations `[Dn]` de la réponse.
