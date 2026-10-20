@@ -14,6 +14,6 @@ services:
   ai-agent-service:
     environment:
       NIM_BASE_URL: http://fake-nim:8080/v1
-      NIM_API_KEY: nvapi-cle-factice-e2e
+      NIM_API_KEY: cle-factice-e2e
       NIM_MODEL: nvidia/nemotron-3.5-super-vl-120b-a12b
     depends_on: { fake-nim: { condition: service_started } }

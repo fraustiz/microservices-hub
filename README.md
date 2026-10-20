@@ -19,13 +19,13 @@ Prérequis : Node 22, pnpm (`corepack enable`), Docker.
 ```bash
 pnpm install
 pnpm hooks                                    # active le hook Git de .githooks
-pnpm env:init                                 # crée ou complète les .env, génère la clé de signature JWT
+pnpm env:init                                 # crée ou complète les .env, génère la clé de signature JWT et le mot de passe de démonstration
 docker compose up --build                     # puis http://localhost
 ```
 
 Pour que l'agent IA réponde, créer une clé gratuite sur [build.nvidia.com](https://build.nvidia.com) et la renseigner dans `NIM_API_KEY` de `apps/ai-agent-service/.env` (sans clé, il répond « Service d'IA indisponible »).
 
-`docker compose ps` doit montrer les 8 conteneurs démarrés, et http://localhost afficher la page de connexion. Comptes de démonstration : `alice@hub.local` (admin), `bruno@hub.local` (manager RH), `chloe@hub.local` (employée RH), `david@hub.local` (employé tech), mot de passe `hub-demo-2026`.
+`docker compose ps` doit montrer les 8 conteneurs démarrés, et http://localhost afficher la page de connexion. Comptes de démonstration : `alice@hub.local` (admin), `bruno@hub.local` (manager RH), `chloe@hub.local` (employée RH), `david@hub.local` (employé tech), mot de passe affiché par `pnpm env:init` (`SEED_PASSWORD` de `apps/auth-service/.env`).
 
 ## Tests
 

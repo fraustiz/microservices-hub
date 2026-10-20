@@ -12,7 +12,7 @@ const completion = (content: string | null) =>
   });
 
 beforeEach(() => {
-  vi.stubEnv("NIM_API_KEY", "nvapi-cle-de-test");
+  vi.stubEnv("NIM_API_KEY", "cle-de-test");
   vi.stubEnv("NIM_BASE_URL", "http://nim.test/v1");
   vi.stubEnv("NIM_MODEL", "nvidia/nemotron-3.5-super-vl-120b-a12b");
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -32,7 +32,7 @@ describe("chat", () => {
 
     const [url, init] = fetch.mock.calls[0]!;
     expect(url).toBe("http://nim.test/v1/chat/completions");
-    expect(init.headers.Authorization).toBe("Bearer nvapi-cle-de-test");
+    expect(init.headers.Authorization).toBe("Bearer cle-de-test");
     expect(init.signal).toBeInstanceOf(AbortSignal);
     expect(JSON.parse(init.body)).toEqual({
       model: "nvidia/nemotron-3.5-super-vl-120b-a12b",

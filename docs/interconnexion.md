@@ -211,7 +211,7 @@ Si le jeton est absent ou expiré, l'échange s'arrête à l'étape 3 : la gatew
 | agent | `POST /agent/summarize` | Connecté | S2 |
 | agent | `GET /agent/history` | Connecté | S2 |
 
-Comptes de démonstration (créés au premier démarrage, mot de passe `SEED_PASSWORD` de `apps/auth-service/.env.example`) :
+Comptes de démonstration (créés au premier démarrage, mot de passe `SEED_PASSWORD` de `apps/auth-service/.env`, généré par `pnpm env:init`) :
 
 | Email | Rôle | Département | Documents visibles |
 | --- | --- | --- | --- |

@@ -1,11 +1,15 @@
 // Tests de bout en bout, à travers la gateway, sur la pile Docker lancée avec docker-compose.e2e.yml.
 // Vérifie les contrats de docs/interconnexion.md, le contrôle d'accès, CORS, le rate limiting et
 // l'intégration du LLM (faux serveur NVIDIA NIM : on contrôle ce qui serait parti chez le fournisseur).
-// Usage : pnpm test:e2e   (variables : GATEWAY_URL, FAKE_NIM_URL, SEED_PASSWORD)
+// Usage : pnpm test:e2e   (variables : GATEWAY_URL, FAKE_NIM_URL, SEED_PASSWORD, lu par défaut dans apps/auth-service/.env)
+import { readFileSync } from "node:fs";
 
 const GATEWAY = process.env.GATEWAY_URL ?? "http://localhost";
 const FAKE_NIM = process.env.FAKE_NIM_URL ?? "http://127.0.0.1:18080";
-const PASSWORD = process.env.SEED_PASSWORD ?? "hub-demo-2026";
+const PASSWORD =
+  process.env.SEED_PASSWORD ??
+  readFileSync(new URL("../../apps/auth-service/.env", import.meta.url), "utf8").match(/^SEED_PASSWORD=(.*)$/m)?.[1]?.trim();
+if (!PASSWORD) throw new Error("SEED_PASSWORD absent : lancer pnpm env:init ou définir la variable");
 const NOT_FOUND_ANSWER = "Je ne trouve pas cette information dans les documents auxquels vous avez accès.";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -200,7 +204,7 @@ await check("la chaîne envoyée à NIM : search, ask, verify ; documents délim
   assert(system(sent[2]).startsWith("Tu vérifies"), "étape 3 : agent.verify");
   assert(!sent[0].body.messages[1].content.includes("<document"), "aucun document à l'étape de recherche");
   const { authorization, body } = sent[1];
-  equal(authorization, "Bearer nvapi-cle-factice-e2e", "clé API NIM");
+  equal(authorization, "Bearer cle-factice-e2e", "clé API NIM");
   equal(
     [body.model, body.temperature, body.max_tokens, body.stream, body.chat_template_kwargs],
     ["nvidia/nemotron-3.5-super-vl-120b-a12b", 0.1, 600, false, { enable_thinking: false }],

@@ -3,11 +3,16 @@
 //    depuis à .env.example (avec leurs commentaires). Une valeur déjà présente n'est jamais modifiée.
 // 2. Génère la clé privée RSA qui signe les JWT si JWT_PRIVATE_KEY est vide (auth-service uniquement), et signale
 //    une clé présente mais illisible (chemin de fichier, PEM tronqué…), sans la remplacer.
-// 3. Signale les variables du .env que .env.example ne connaît plus : à supprimer à la main.
-import { createPrivateKey, generateKeyPairSync } from "node:crypto";
+// 3. Génère le mot de passe des comptes de démonstration quand SEED_PASSWORD vient d'être ajouté vide, et l'affiche.
+//    Un SEED_PASSWORD vidé à la main reste vide : aucun compte de démonstration (production).
+// 4. Signale les variables du .env que .env.example ne connaît plus : à supprimer à la main.
+import { createPrivateKey, generateKeyPairSync, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const VARIABLE = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/;
+const AUTH_ENV = "apps/auth-service/.env";
+/** Variables ajoutées par ce lancement, par fichier .env. */
+const addedTo = new Map();
 
 /**
  * Noms des variables d'un .env. Les lignes de suite d'une valeur sur plusieurs lignes (entre guillemets, ou clé PEM
@@ -38,6 +43,7 @@ for (const service of ["auth-service", "business-service", "ai-agent-service"]) 
   const example = readFileSync(`apps/${service}/.env.example`, "utf8");
   if (!existsSync(env)) {
     writeFileSync(env, example);
+    addedTo.set(env, variables(example));
     console.log(`créé : ${env}`);
     continue;
   }
@@ -63,6 +69,7 @@ for (const service of ["auth-service", "business-service", "ai-agent-service"]) 
   if (added.length) {
     const separator = content === "" || content.endsWith("\n") ? "" : eol;
     writeFileSync(env, content + separator + lines.join(eol) + eol);
+    addedTo.set(env, new Set(added));
     console.log(`complété : ${env} (ajout de ${added.join(", ")})`);
   }
 
@@ -97,7 +104,7 @@ function isReadablePrivateKey(value) {
   }
 }
 
-const authEnv = "apps/auth-service/.env";
+const authEnv = AUTH_ENV;
 const emptyKey = /^JWT_PRIVATE_KEY=[ \t]*(\r?)$/m;
 const content = readFileSync(authEnv, "utf8");
 const currentKey = privateKeyValue(content);
@@ -111,4 +118,12 @@ if (emptyKey.test(content)) {
     `JWT_PRIVATE_KEY de ${authEnv} illisible (clé RSA au format PEM attendue) : auth-service ne démarrera pas. ` +
       "Effacer sa valeur (et ses éventuelles lignes suivantes) pour garder seulement « JWT_PRIVATE_KEY= », puis relancer pnpm env:init.",
   );
+}
+
+const emptySeed = /^SEED_PASSWORD=[ \t]*(\r?)$/m;
+const authContent = readFileSync(authEnv, "utf8");
+if (addedTo.get(authEnv)?.has("SEED_PASSWORD") && emptySeed.test(authContent)) {
+  const password = randomBytes(12).toString("base64url");
+  writeFileSync(authEnv, authContent.replace(emptySeed, (_, cr) => `SEED_PASSWORD=${password}${cr}`));
+  console.log(`mot de passe des comptes de démonstration (SEED_PASSWORD de ${authEnv}) : ${password}`);
 }

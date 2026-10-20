@@ -104,7 +104,7 @@ Prérequis : Node 22, pnpm (`corepack enable`), Docker Desktop démarré.
 ```bash
 pnpm install
 pnpm hooks        # active .githooks (voir plus bas)
-pnpm env:init     # crée ou complète les .env depuis les .env.example, génère la clé JWT
+pnpm env:init     # crée ou complète les .env depuis les .env.example, génère la clé JWT et le mot de passe de démonstration
 docker compose up --build
 ```
 
@@ -113,7 +113,8 @@ docker compose up --build
 - `.env` absent : il est créé depuis `.env.example` ;
 - `.env` existant : les variables ajoutées depuis à `.env.example` y sont ajoutées, avec leurs commentaires. Une valeur déjà présente n'est **jamais** modifiée ;
 - variables du `.env` que `.env.example` ne connaît plus (par exemple `MISTRAL_*` depuis [D20](decisions.md)) : elles sont signalées, à supprimer à la main ;
-- `JWT_PRIVATE_KEY` vide : la clé est générée ; présente mais illisible (chemin de fichier, PEM tronqué…) : elle est signalée, jamais remplacée.
+- `JWT_PRIVATE_KEY` vide : la clé est générée ; présente mais illisible (chemin de fichier, PEM tronqué…) : elle est signalée, jamais remplacée ;
+- `SEED_PASSWORD` qui vient d'être ajouté : un mot de passe aléatoire est généré et affiché. Aucun mot de passe n'est écrit dans le dépôt ; un `SEED_PASSWORD` vidé à la main reste vide (aucun compte de démonstration).
 
 À relancer après chaque mise à jour du dépôt qui touche un `.env.example`. Pour interroger le vrai LLM, créer une clé gratuite sur https://build.nvidia.com (compte NVIDIA Developer) et la renseigner dans `NIM_API_KEY` de `apps/ai-agent-service/.env`.
 
@@ -202,7 +203,7 @@ Chaque service lit ses variables dans `apps/<service>/.env`, créé et tenu à j
 | auth-service | `DATABASE_URL` | Connexion à `auth_db` (surchargée par `docker-compose.yml`) |
 | auth-service | `JWT_PRIVATE_KEY` | **Secret.** Clé privée RSA (PEM) qui signe les JWT, générée par `pnpm env:init` |
 | auth-service | `JWT_PREVIOUS_PUBLIC_KEY` | Clé publique de l'ancienne paire pendant une rotation ([securite.md](securite.md)) |
-| auth-service | `SEED_PASSWORD` | Mot de passe des comptes de démonstration ; vide = aucun compte créé (production) |
+| auth-service | `SEED_PASSWORD` | Mot de passe des comptes de démonstration ; généré par `pnpm env:init` ; vide = aucun compte créé (production) |
 | auth-service | `COOKIE_SECURE` | `true` derrière HTTPS : cookies `Secure` |
 | business-service | `DATABASE_URL` | Connexion à `business_db` |
 | business-service | `AUTH_JWKS_URL` | Clé publique d'auth-service (surchargée par `docker-compose.yml`) |
