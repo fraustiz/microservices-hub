@@ -11,6 +11,7 @@ Point d'entrée de la documentation. Lire dans cet ordre pour comprendre le proj
 | 5 | [developpement.md](developpement.md) | Organisation du monorepo, image Docker, lancement, conventions |
 | 6 | [prompt-book.md](prompt-book.md) | **Prompt Book** : prompts envoyés au LLM, paramètres, garde-fous, cas de test, versions |
 | 7 | [decisions.md](decisions.md) | Journal des décisions et des options écartées |
+| 8 | [modele-donnees.md](modele-donnees.md) | Modèle de données (MCD / MLD) des trois bases, non demandé explicitement par le sujet mais documenté pour la soutenance |
 
 ## Semaine 1 : ce qui est rendu
 
