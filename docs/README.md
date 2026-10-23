@@ -12,6 +12,7 @@ Point d'entrée de la documentation. Lire dans cet ordre pour comprendre le proj
 | 6 | [prompt-book.md](prompt-book.md) | **Prompt Book** : prompts envoyés au LLM, paramètres, garde-fous, cas de test, versions |
 | 7 | [decisions.md](decisions.md) | Journal des décisions et des options écartées |
 | 8 | [modele-donnees.md](modele-donnees.md) | Modèle de données (MCD / MLD) des trois bases, non demandé explicitement par le sujet mais documenté pour la soutenance |
+| 9 | [produit.md](produit.md) | Liste de fonctionnalités qui définit le produit final, et ce qui manque pour qu'il soit livrable |
 
 ## Semaine 1 : ce qui est rendu
 
